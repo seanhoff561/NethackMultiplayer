@@ -16,3 +16,8 @@ dist-polished/
 engine/runtime-polished/
 .polished-server.log
 .polished-server-errors.log
+
+dist-polished-v05/
+engine/runtime-polished-v05/
+.v05-server.log
+.v05-server-errors.log

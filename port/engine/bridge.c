@@ -46,6 +46,22 @@ void descent_item_picked_up(struct obj *obj) {
 void descent_monster_defeated(unsigned id) {
     printf("{\"type\":\"actor-defeated\",\"actorId\":%u}\n",id);fflush(stdout);
 }
+/* Active guard augments native armor; no permanent equipment modification. */
+static int defending = 0;
+int descent_defense_bonus(void) {
+    if (!defending || gm.multi < 0 || u.uswallow || go.occupation) return 0;
+    if (uarms) return max(0, ARM_BONUS(uarms));
+    return uwep && (uwep->oclass == WEAPON_CLASS || is_weptool(uwep)) ? 1 : 0;
+}
+void descent_actor_attack(struct monst *mon, int ranged) {
+    printf("{\"type\":\"actor-attack\",\"actorId\":%u,\"ranged\":%s}\n", mon->m_id, ranged ? "true" : "false");fflush(stdout);
+}
+static void object_visual(struct obj *obj) {
+    const char *appearance=OBJ_DESCR(objects[obj->otyp]);
+    fputs(",\"appearance\":",stdout);json_string(appearance ? appearance : OBJ_NAME(objects[obj->otyp]));
+    printf(",\"modelId\":%d,\"material\":%d,\"color\":%d",objects[obj->otyp].oc_descr_idx,objects[obj->otyp].oc_material,objects[obj->otyp].oc_color);
+    if(obj->oclass==ARMOR_CLASS)printf(",\"armorSlot\":%d",objects[obj->otyp].oc_armcat);
+}
 static double player_x = 0, player_z = 0, player_height = 0;
 typedef struct SpatialActor { unsigned id; double x,z,y; int gx,gz,can_hit; } SpatialActor;
 static SpatialActor spatial_actors[4096];
@@ -122,7 +138,8 @@ static const char *terrain(int x, int y) {
     return "floor";
 }
 static void snapshot(void) {
-    int x, y, first = 1, i;
+    int x, y, first = 1, i, burden = near_capacity();
+    const double burden_speed[] = {1.0,.75,.5,.25,.125,0.0};
     struct obj *obj;
     const char *hunger_names[] = {"Satiated", "", "Hungry", "Weak", "Fainting", "Fainted", "Starved"};
     if (snapshot_guard || !u.ux || !u.ulevel) return;
@@ -138,10 +155,12 @@ static void snapshot(void) {
     CONDITION(Blind, "Blind"); CONDITION(Confusion, "Confused"); CONDITION(Stunned, "Stunned");
     CONDITION(Hallucination, "Hallucinating"); CONDITION(Levitation, "Levitating");
     CONDITION(Slimed, "Slimed"); CONDITION(Stoned, "Petrifying"); CONDITION(Strangled, "Strangled");
+    CONDITION(burden==1,"Burdened"); CONDITION(burden==2,"Stressed"); CONDITION(burden==3,"Strained"); CONDITION(burden==4,"Overtaxed"); CONDITION(burden>=5,"Overloaded");
     CONDITION(Sick, "Sick"); CONDITION(u.utrap, "Trapped"); CONDITION(u.uswallow, "Swallowed");
     fputs("],\"weapon\":", stdout); json_string(uwep ? doname(uwep) : "bare hands");
+    printf(",\"guardBonus\":%d,\"encumbrance\":%d",descent_defense_bonus(),burden);
     fputs(",\"shield\":", stdout); json_string(uarms ? doname(uarms) : "");
-    printf(",\"immobile\":%s,\"speedScale\":%.2f},\"spatialSerial\":%lu,\"actionSerial\":%lu,\"tiles\":[", (u.utrap || u.uswallow || gm.multi<0 || go.occupation) ? "true":"false", Very_fast ? 1.5 : Fast ? 1.25 : 1.0, spatial_serial, action_serial); first = 1;
+    printf(",\"immobile\":%s,\"speedScale\":%.2f},\"spatialSerial\":%lu,\"actionSerial\":%lu,\"tiles\":[", (burden>=5 || u.utrap || u.uswallow || gm.multi<0 || go.occupation) ? "true":"false", (Very_fast ? 1.5 : Fast ? 1.25 : 1.0)*burden_speed[min(5,burden)], spatial_serial, action_serial); first = 1;
     for (y = 0; y < ROWNO; y++) for (x = 1; x < COLNO; x++) {
         glyph_info info;
         const char *type;
@@ -180,8 +199,9 @@ static void snapshot(void) {
             printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"index\":%d,\"name\":",mon->m_id,mon->mx,mon->my,mn);
             json_string(mon->data->pmnames[NEUTRAL]);fputs(",\"symbol\":",stdout);json_char(def_monsyms[(int)mon->data->mlet].sym);
             { SpatialActor *p=actor_position(mon);printf(",\"goalX\":%d,\"goalZ\":%d",p->gx,p->gz); }
-            printf(",\"hp\":%d,\"maxHp\":%d",mon->mhp,mon->mhpmax);
-            printf(",\"color\":%d,\"size\":%d,\"speed\":%d,\"tame\":%s,\"peaceful\":%s,\"canMove\":%s,\"sleeping\":%s,\"fleeing\":%s,\"stationary\":%s,\"visible\":%s}",mon->data->mcolor,mon->data->msize,mon->data->mmove,mon->mtame?"true":"false",mon->mpeaceful?"true":"false",mon->mcanmove&&!mon->mtrapped&&!mon->meating?"true":"false",mon->msleeping?"true":"false",mon->mflee?"true":"false",mon->isshk||mon->ispriest||mon->isgd?"true":"false",!mon->mundetected&&mon->m_ap_type==M_AP_NOTHING&&(!mon->minvis||See_invisible)?"true":"false");
+            printf(",\"hp\":%d,\"maxHp\":%d,\"level\":%d,\"boss\":%s",mon->mhp,mon->mhpmax,mon->m_lev,((mon->data->geno&G_UNIQ)&&!mon->mpeaceful)?"true":"false");
+            fputs(",\"weapon\":",stdout);json_string(MON_WEP(mon)?distant_name(MON_WEP(mon),doname):"");
+            printf(",\"color\":%d,\"size\":%d,\"speed\":%d,\"tame\":%s,\"peaceful\":%s,\"canMove\":%s,\"sleeping\":%s,\"fleeing\":%s,\"stationary\":%s,\"visible\":%s}",mon->data->mcolor,mon->data->msize,(mon->data->mmove*(mon->mspeed==MFAST?4:mon->mspeed==MSLOW?2:3))/3,mon->mtame?"true":"false",mon->mpeaceful?"true":"false",mon->mcanmove&&!mon->mtrapped&&!mon->meating?"true":"false",mon->msleeping?"true":"false",mon->mflee?"true":"false",mon->isshk||mon->ispriest||mon->isgd?"true":"false",!mon->mundetected&&mon->m_ap_type==M_AP_NOTHING&&(!mon->minvis||See_invisible)?"true":"false");
         }
     }
     fputs("],\"floorObjects\":[",stdout);first=1;
@@ -189,7 +209,7 @@ static void snapshot(void) {
         if(obj->where!=OBJ_FLOOR)continue;
         if(!first)putchar(',');first=0;
         printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"quantity\":%ld,\"class\":%d,\"name\":",obj->o_id,obj->ox,obj->oy,obj->quan,obj->oclass);
-        json_string(distant_name(obj,doname));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);putchar('}');
+        json_string(distant_name(obj,doname));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);object_visual(obj);putchar('}');
     }
     fputs("],\"inventory\":[", stdout); first = 1;
     for (obj = gi.invent; obj; obj = obj->nobj) {
@@ -197,7 +217,7 @@ static void snapshot(void) {
         printf("{\"id\":%u,\"key\":", obj->o_id); json_char(obj->invlet);
         fputs(",\"name\":", stdout); json_string(doname(obj));
         printf(",\"class\":%d,\"quantity\":%ld,\"weight\":%u,\"equipped\":%s,\"glyph\":%d,\"symbol\":", obj->oclass, obj->quan, obj->owt, obj->owornmask ? "true":"false", obj_to_glyph(obj, rn2_on_display_rng)); json_char(def_oc_syms[(int)obj->oclass].sym);
-        fputs("}", stdout);
+        object_visual(obj);fputs("}", stdout);
     }
     fputs("],\"messages\":[", stdout);
     for (i = 0; i < message_count; i++) { if (i) putchar(','); printf("{\"id\":%lu,\"text\":", message_ids[i]); json_string(message_log[i]); putchar('}'); }
@@ -212,6 +232,7 @@ static char *read_wire(void) {
             if (turn_ms < 250) turn_ms = 250; if (turn_ms > 3000) turn_ms = 3000;
             continue;
         }
+        if(wire_line[0]=='b' && wire_line[1]==' ') { defending=atoi(wire_line+2)!=0;find_ac();continue; }
         if(wire_line[0]=='v' && wire_line[1]==' ') {
             unsigned long serial; int dnum,dlevel,ax=0,az=0,count; double px,pz,py;
             count=sscanf(wire_line+2,"%lu %d %d %lf %lf %lf %d %d",&serial,&dnum,&dlevel,&px,&pz,&py,&ax,&az);

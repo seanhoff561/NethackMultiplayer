@@ -24,7 +24,7 @@ test('menu accelerators and key repeat never leak into movement or duplicate com
   const f=fixture();f.down('KeyI');f.context('menu');f.down('KeyW');f.input.clear();
   f.context('game');f.down('KeyW',{repeat:true});assert.equal(f.input.is('forward'),false);
   f.up('KeyW');f.down('KeyW');assert.equal(f.input.is('forward'),true);
-  f.down('Space');f.down('Space',{repeat:true});assert.deepEqual(f.actions,['inventory','attack']);
+  f.down('Space');f.down('Space',{repeat:true});assert.deepEqual(f.actions,['inventory','cast']);
   f.context('menu');f.down('KeyB');f.down('KeyB',{repeat:true});assert.deepEqual(f.menus,['KeyW','KeyB']);
 });
 test('each physical binding dispatches only one action; Space cannot click a focused UI button',()=>{

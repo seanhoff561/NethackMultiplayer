@@ -56,9 +56,9 @@ try{
   assert.equal(await page.evaluate(()=>(window.__sent.filter(e=>e.type==='input'||e.type==='release').at(-1).forward||0)),0,'held inventory letter cannot start walking after close');
   await page.keyboard.up('w');await page.locator('[data-action=resume]').click();results.push('Movement releases per key; inventory remains live and held accelerators cannot leak');
   const prior=await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.melee).length);
-  await page.keyboard.down('Space');await page.keyboard.down('Space');await page.waitForTimeout(650);await page.keyboard.up('Space');
+  await page.mouse.down();await page.waitForTimeout(650);await page.mouse.up();
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.melee).length),prior+1);
-  await page.keyboard.press('Space');await page.waitForTimeout(80);await page.keyboard.press('Space');await page.waitForTimeout(700);
+  await page.mouse.click(720,450);await page.waitForTimeout(80);await page.mouse.click(720,450);await page.waitForTimeout(700);
   const attacks=await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.melee).slice(-3).map(e=>e.id));
   const started=await page.evaluate(()=>window.__received.filter(e=>e.type==='action-status'&&e.status==='started').map(e=>e.id));
   for(const id of attacks)assert.equal(started.filter(i=>i===id).length,1);results.push('Repeated held attack is ignored; rapid distinct attacks execute once each with acknowledgment');

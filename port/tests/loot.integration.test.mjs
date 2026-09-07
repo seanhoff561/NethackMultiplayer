@@ -9,7 +9,7 @@ const until=async(fn,label)=>{const end=Date.now()+7000;while(!fn()){if(Date.now
 
 test('native floor piles are nonmodal, individually retrievable, and emit actual pickup events',{timeout:20000},async()=>{
   await mkdir(path.join(root,'test-results'),{recursive:true});const cwd=await mkdtemp(path.join(root,'test-results/loot-native-'));await cp(path.join(root,'engine/data'),cwd,{recursive:true});
-  const engine=new NativeSession({executable:path.join(root,'engine/bin/nethack-engine-polished.exe'),cwd,args:['-p','Wizard','-r','human','-g','male','-a','neutral','-u','LootQA']});
+  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v05.exe'),cwd,args:['-p','Wizard','-r','human','-g','male','-a','neutral','-u','LootQA']});
   const events=[],prompts=[],diagnostics=[];engine.on('event',e=>events.push(e));engine.on('prompt',p=>prompts.push(p));engine.on('diagnostic',m=>diagnostics.push(m));engine.start();
   try{
     await until(()=>engine.ready&&engine.snapshot,'startup');

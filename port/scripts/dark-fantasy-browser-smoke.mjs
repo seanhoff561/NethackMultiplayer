@@ -1,7 +1,7 @@
 // Controlled presentation fixtures; native gameplay is covered by the other suites.
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
-import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -57,6 +57,39 @@ try{
     for(let i=0;i<180;i++)r.update(1/60);const dark=r.lantern.intensity;r.snapshot.player.blind=false;r.update(.016);
     return {lit,fading,dark,recovering:r.lantern.intensity};
   });assert.ok(lighting.fading>lighting.dark&&lighting.fading<lighting.lit&&lighting.recovering>lighting.dark);
+  const creatures=await page.evaluate(()=>{
+    const r=window.descent.renderer;r.snapshot.player.blind=false;r.creatures.clear();r.monsters.clear();
+    const types=[{name:'gnome',symbol:'G',size:1},{name:'orc captain',symbol:'o',size:2,weapon:'battle-axe'},{name:'Orcus',symbol:'&',size:3,boss:true,weapon:'wand of death'},{name:'fire elemental',symbol:'E',size:4}];
+    const result=[];
+    for(let i=0;i<types.length;i++){
+      const g=r._creature(types[i].name,5,types[i].symbol,types[i]);g.position.set(4.5+i*4,0,7);g.rotation.y=0;r.creatures.add(g);
+      r.monsters.set(`id:${i}`,{group:g,target:g.position.clone(),phase:i,moving:true,yaw:0,name:types[i].name});
+      result.push({name:types[i].name,height:g.userData.profile.height,scale:g.userData.body.scale.y,meshCount:0});g.traverse(o=>{if(o.isMesh)result[i].meshCount++;});
+    }
+    r.setPose({x:3.5,y:5.1,yaw:0,pitch:0});for(let i=0;i<120;i++)r.update(1/60);
+    return result;
+  });
+  assert.ok(creatures[1].height>1.8&&creatures[2].height>3);await page.screenshot({path:'test-results/creature-lineup.png'});
+  const animation=await page.evaluate(()=>{
+    const r=window.descent.renderer,e=r.monsters.get('id:1'),legs=e.group.userData.legs,arms=e.group.userData.arms;
+    const leg=legs[0].rotation.x;r.update(.1);const walked=legs[0].rotation.x!==leg;r.actorAttack(1);r.update(.18);
+    return {walked,attack:Math.abs(arms[1].rotation.x)>1,body:e.group.userData.body.rotation.x};
+  });assert.ok(animation.walked&&animation.attack&&animation.body<0);await page.screenshot({path:'test-results/creature-attack.png'});
+  const source=await readFile('../include/objects.h','utf8');
+  const symbols={WEAPON:')',PROJECTILE:')',BOW:')',HELM:'[',GLOVES:'[',BOOTS:'[',CLOAK:'[',ARMOR:'[',RING:'=',AMULET:'"',TOOL:'(',WEPTOOL:'(',FOOD:'%',POTION:'!',SCROLL:'?',SPELL:'+',WAND:'/',GEM:'*',COIN:'$'};
+  const catalog=[...source.matchAll(/^(WEAPON|PROJECTILE|BOW|HELM|GLOVES|BOOTS|CLOAK|ARMOR|RING|AMULET|TOOL|WEPTOOL|FOOD|POTION|SCROLL|SPELL|WAND|GEM|COIN)\("([^"\n]+)"/gm)].map((m,i)=>({name:m[2],symbol:symbols[m[1]],modelId:i,appearance:m[2]}));
+  const coverage=await page.evaluate(catalog=>{
+    const r=window.descent.renderer;let count=0,missing=[];
+    for(const item of catalog){const g=r._item(item.name,7,item.symbol,item);let meshes=0;g.traverse(o=>{if(o.isMesh)meshes++;});if(!meshes||!g.userData.modelKey)missing.push(item.name);else count++;}
+    r.creatures.clear();r.monsters.clear();r.items.clear();
+    const display=[['iron shoes','[',4],['leather gloves','[',3],['brass lantern','('],['skeleton key','('],['crossbow',')'],['trident',')'],['wooden harp','('],['tin','%'],['food ration','%'],['expensive camera','('],['plumed helmet','[',2],['magic marker','(']];
+    display.forEach(([name,symbol,armorSlot],i)=>{const g=r._item(name,7,symbol,{appearance:name,armorSlot});g.position.set(7.5+i%4*2,0,6.5+Math.floor(i/4)*2);r.items.add(g);});
+    r.setPose({x:3.5,y:4.5,yaw:0,pitch:-.6});r.update(.8);return {count,missing};
+  },catalog);assert.ok(coverage.count>200);assert.deepEqual(coverage.missing,[]);await page.screenshot({path:'test-results/item-models.png'});
+  for(const branch of ['Gnomish Mines','Sokoban','Gehennom','Astral Plane']){
+    await page.evaluate(branch=>{const r=window.descent.renderer,s=structuredClone(r.snapshot);s.player.dungeon=branch;s.levelId=branch;s.actors=[];s.floorObjects=[];r.setWorld(s);r.setPose({x:3.5,y:4,yaw:0,pitch:-.07});for(let i=0;i<90;i++)r.update(1/60);},branch);
+    await page.screenshot({path:`test-results/branch-${branch.replaceAll(' ','-')}.png`});
+  }
   assert.deepEqual(errors,[]);
-  const result={models,themes,lighting,errors};await writeFile('test-results/dark-fantasy-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
+  const result={models,themes,lighting,creatures,animation,coverage,errors};await writeFile('test-results/dark-fantasy-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 }catch(e){console.error(output);throw e;}finally{await browser?.close();server.kill();}

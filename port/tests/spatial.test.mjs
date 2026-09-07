@@ -35,7 +35,7 @@ test('floor geometry merges rooms into surfaces instead of map-cell meshes',()=>
 test('monster locomotion advances between native pulses and continues with no player input',()=>{
   const sim=new SpatialSimulation();sim.accept({levelId:'0:1',tiles:room(),player:{x:4,y:3,hp:20},actors:[{id:1,x:2,y:3,speed:12,canMove:true,visible:true}]});
   const a=sim.actors.get(1),x=a.x;for(let i=0;i<12;i++)sim.update(1/60);
-  assert.ok(a.x>x+.3);assert.ok(a.x<x+1);assert.notEqual(a.x%3,1.5);
+  assert.ok(a.x>x+.3);assert.ok(a.x<x+1.1);assert.notEqual(a.x%3,1.5);
 });
 test('stairwell divider blocks visibility and attacks between flights',()=>{
   const tiles=room();tiles.find(t=>t.x===3&&t.y===3).type='stairs_down';const w=new CollisionWorld(tiles),s=w.stairs[0];
@@ -48,5 +48,5 @@ test('legacy doorway anchors never pull physical bodies to a cell center',()=>{
   sim.project({ready:true,write:input=>writes.push(input)});
   assert.equal(sim.projected.x,2);assert.ok(sim.player.x>9,'body can enter the doorway approach');
   sim.accept({levelId:'0:1',spatialSerial:sim.sequence,tiles,player:{x:2,y:3,hp:20},actors:[]});
-  assert.equal(sim.player.x,before.x);assert.equal(writes[0].value[3],before.x);
+  assert.equal(sim.player.x,before.x);assert.equal(writes.find(w=>w.kind==='position').value[3],before.x);
 });

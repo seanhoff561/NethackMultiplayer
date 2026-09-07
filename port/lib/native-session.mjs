@@ -8,6 +8,7 @@ export function encodeInput(input) {
   if(input.kind==='menu') return `m ${(input.value||[]).map(Number).filter(Number.isFinite).join(',')}\n`;
   if(input.kind==='text') return `t ${clean(input.value)}\n`;
   if(input.kind==='extcmd') return `x ${clean(input.value)}\n`;
+  if(input.kind==='defend')return `b ${input.value?1:0}\n`;
   if(input.kind==='pace')return `p ${Math.max(250,Math.min(3000,Number(input.value)||800))}\n`;
   if(input.kind==='position'||input.kind==='actor')return `${input.kind==='position'?'v':'n'} ${(input.value||[]).map(Number).filter(Number.isFinite).join(' ')}\n`;
   if(input.kind==='melee')return `a ${Number(input.value)||0}\n`;
@@ -113,13 +114,15 @@ export class NativeSession extends EventEmitter {
       this.replay=transaction.steps.slice(1);this.replayIndex=1;this.ready=false;
       this.emit('clearPrompt');this.write(transaction.steps[0].input);return true;
     }
-    if(this.request&&!this.ready) {this.write(input);return true;}
+    if(this.request?.kind!=='command'&&this.request&&!this.ready) {this.write(input);return true;}
     return false;
   }
   cancel() {
     this.pendingAnswer=null;
     if(this.virtualPrompt) {this.virtualPrompt=null;this.transaction=null;this.emit('clearPrompt');return;}
-    if(this.request&&!this.ready)this.write(cancelInput(this.request));
+    // A busy command is executing, not asking for input. Queuing Escape here
+    // would answer its next prompt and leave subsequent commands out of sync.
+    if(this.request?.kind!=='command'&&this.request&&!this.ready)this.write(cancelInput(this.request));
   }
   flushAnswer() {if(this.pendingAnswer&&this.ready){const input=this.pendingAnswer;this.pendingAnswer=null;this.answer(input);}}
   stop() {this.child?.kill();this.closed=true;}

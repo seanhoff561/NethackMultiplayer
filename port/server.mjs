@@ -2,7 +2,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {existsSync,readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync} from 'node:fs';
+import {existsSync,readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync,renameSync} from 'node:fs';
 import {WebSocketServer,WebSocket} from 'ws';
 import {NativeSession} from './lib/native-session.mjs';
 import {RealtimeClock} from './lib/realtime.mjs';
@@ -14,15 +14,15 @@ import {SpatialSimulation} from './lib/spatial-simulation.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const repository=path.dirname(root);
-const port=Number(process.env.PORT)||5175;
-const production=existsSync(path.join(root,'dist-polished/index.html')) && !process.argv.includes('--dev');
-const siteRoot=production?path.join(root,'dist-polished'):root;
-const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-polished.exe');
-const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished');
+const port=Number(process.env.PORT)||5176;
+const production=existsSync(path.join(root,'dist-polished-v05/index.html')) && !process.argv.includes('--dev');
+const siteRoot=production?path.join(root,'dist-polished-v05'):root;
+const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-polished-v05.exe');
+const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished-v05');
 const commands=readCommands(path.join(repository,'src/cmd.c'));
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.map':'application/json'};
 const metadataFile=path.join(runtime,'descent-session.json');
-let session=null,clock=null,lastSnapshot=null,lastCharacter=null,lastPrompt=null,awaitingTurn=null,worldInterval=800;
+let session=null,clock=null,lastSnapshot=null,lastCharacter=null,lastPrompt=null,awaitingTurn=null,worldInterval=800,newRunPending=false,freshRun=false;
 let spatial=new SpatialSimulation(),motionTicks=0,transitionAt=0,lastMeleeAt=0,actions=null,feedback=new FeedbackTracker();
 if(existsSync(metadataFile)){try{lastCharacter=JSON.parse(readFileSync(metadataFile,'utf8'));}catch{}}
 const canContinue=()=>!!lastCharacter&&existsSync(path.join(runtime,lastCharacter.name+'.NetHack-saved-game'));
@@ -30,7 +30,7 @@ const server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Cache-Control','no-store');
-  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production});
+  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production,version:'0.5.0'});
   if(url.pathname==='/api/commands')return json(res,commands);
   let file;
   if(url.pathname==='/vendor/three.js') file=path.join(root,'node_modules/three/build/three.module.js');
@@ -60,7 +60,15 @@ function start(character={},resume=false){
   const races=['human','elf','dwarf','gnome','orc'];
   character=resume&&lastCharacter?lastCharacter:character;
   const config={name:String(character.name||'Adventurer').replace(/[^a-zA-Z0-9 _-]/g,'').trim().slice(0,24)||'Adventurer',role:roles.find(r=>r.toLowerCase()===String(character.role).toLowerCase())||'Valkyrie',race:races.includes(character.race)?character.race:'human',gender:['male','female'].includes(character.gender)?character.gender:'female',alignment:['lawful','neutral','chaotic'].includes(character.alignment)?character.alignment:'lawful'};
-  lastCharacter=config;mkdirSync(runtime,{recursive:true});writeFileSync(metadataFile,JSON.stringify(config));
+  if(freshRun&&!resume){
+    const saved=path.join(runtime,config.name+'.NetHack-saved-game');
+    if(existsSync(saved)){
+      const archive=path.join(runtime,'archive',`${Date.now()}-${config.name}`);mkdirSync(archive,{recursive:true});
+      for(const suffix of ['.NetHack-saved-game','.descent-spatial.json']){const file=path.join(runtime,config.name+suffix);if(existsSync(file))renameSync(file,path.join(archive,config.name+suffix));}
+      writeFileSync(path.join(archive,'character.json'),JSON.stringify(lastCharacter));
+    }
+  }
+  freshRun=false;lastCharacter=config;mkdirSync(runtime,{recursive:true});writeFileSync(metadataFile,JSON.stringify(config));
   for(const file of readdirSync(path.join(root,'engine/data'))) {
     const dest=path.join(runtime,file);
     if(!existsSync(dest))copyFileSync(path.join(root,'engine/data',file),dest);
@@ -107,7 +115,7 @@ function start(character={},resume=false){
     broadcast(spatial.packet());
     if(snapshot.player?.hp>0&&!clock.active)clock.start();
   });
-  session.on('prompt',request=>{lastPrompt=request;broadcast({type:'prompt',...request,type:'prompt'});});
+  session.on('prompt',request=>{if(newRunPending&&/save/i.test(request.prompt||'')&&request.kind==='yn'){queueMicrotask(()=>session.answer({kind:'key',value:'y'}));return;}lastPrompt=request;broadcast({type:'prompt',...request,type:'prompt'});});
   session.on('clearPrompt',()=>{lastPrompt=null;broadcast({type:'clearPrompt'});});
   session.on('notice',notice);
   session.on('diagnostic',text=>{console.log('[engine]',text.trim().slice(0,1200));});
@@ -117,6 +125,7 @@ function start(character={},resume=false){
     clock.stop();lastPrompt=null;const saved=existsSync(path.join(runtime,config.name+'.NetHack-saved-game'));
     if(saved)writeFileSync(spatialFile,JSON.stringify(spatial.serialize()));
     broadcast({type:'ended',...event,saved});
+    if(newRunPending){newRunPending=false;freshRun=true;broadcast({type:'new-run-ready'});}
   });
   broadcast({type:'starting',character:config});session.start();
 }
@@ -127,6 +136,14 @@ wss.on('connection',ws=>{
   ws.on('message',raw=>{
     let message;try{message=JSON.parse(raw.toString());}catch{return;}
     if(message.type==='start')return start(message.character);
+    if(message.type==='new-run'){
+      if(newRunPending)return;
+      if(!session||session.closed){freshRun=true;broadcast({type:'new-run-ready'});return;}
+      newRunPending=true;spatial.release();session.write({kind:'defend',value:false});clock.clearQueue();actions.clear();session.cancel();
+      // The player already confirmed saving in the New run dialog. Answer the
+      // native confirmation in the same transaction, without a live-menu replay.
+      actions.enqueue({key:'Sy'});return;
+    }
     if(message.type==='continue')return start({},true);
     if(message.type==='settings'){worldInterval=Math.max(250,Math.min(3000,(Number(message.pulseTime)||.8)*1000));if(clock)clock.setInterval(worldInterval);if(session&&!session.closed)session.write({kind:'pace',value:worldInterval});return;}
     if(!session||session.closed)return;
@@ -138,7 +155,8 @@ wss.on('connection',ws=>{
       if(action.key==='S'){clock.clearQueue();actions.clear('Saving expedition.');}
       actions.enqueue(action);
     }
-    if(message.type==='release')spatial.release();
+    if(message.type==='release'){spatial.release();session.write({kind:'defend',value:false});}
+    if(message.type==='defend'){spatial.input.defend=!!message.active;session.write({kind:'defend',value:!spatial.blocked&&!!message.active});}
     if(message.type==='answer')session.answer(message.input||{kind:'key',value:27});
     if(message.type==='cancel'){actions.clear();session.cancel();}
   });

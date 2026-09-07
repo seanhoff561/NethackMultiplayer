@@ -710,6 +710,9 @@ mattacku(struct monst *mtmp)
         return 0;
     }
 
+#ifdef DESCENT_SPATIAL
+    { extern void descent_actor_attack(struct monst *, int); descent_actor_attack(mtmp, range2); }
+#endif
     /*  Work out the armor class differential   */
     tmp = AC_VALUE(u.uac) + 10; /* tmp ~= 0 - 20 */
     tmp += mtmp->m_lev;

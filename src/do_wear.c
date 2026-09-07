@@ -2501,6 +2501,9 @@ find_ac(void)
         uac -= u.ublessed;
     uac -= u.uspellprot;
 
+#ifdef DESCENT_SPATIAL
+    { extern int descent_defense_bonus(void); uac -= descent_defense_bonus(); }
+#endif
     /* put a cap on armor class [5.0: was +127,-128, now reduced to +/- 99 */
     if (abs(uac) > AC_MAX)
         uac = sgn(uac) * AC_MAX;

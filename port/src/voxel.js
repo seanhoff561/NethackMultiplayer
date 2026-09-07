@@ -19,7 +19,17 @@ export function voxelVolume(resolution=6){
   return {positions,normals,uvs};
 }
 
-export function dressingPlan(tiles){
+export function branchStyle(name=''){
+  const label=name.toLowerCase();
+  if(/mine/.test(label))return {id:'mines',theme:4,wall:0x938777,floor:0x80736d,fog:0x141018};
+  if(/sokoban/.test(label))return {id:'sokoban',theme:5,wall:0x8a8c9c,floor:0x728d91,fog:0x0d1521};
+  if(/gehennom|hell|vlad|sanctum/.test(label))return {id:'infernal',theme:6,wall:0x73545f,floor:0x675160,fog:0x1c0b15};
+  if(/plane|astral/.test(label))return {id:'astral',theme:7,wall:0xa4a1b4,floor:0x8c8d9c,fog:0x15172b};
+  if(/quest|fort|castle|ludios/.test(label))return {id:'fortress',theme:8,wall:0x787a98,floor:0x6c6d84,fog:0x0e101e};
+  return {id:'dungeon',theme:null,wall:0x8b8d9f,floor:0x8a8998,fog:0x0b0d18};
+}
+export function dressingPlan(tiles,branch=''){
+  const style=branchStyle(branch);
   const hash=(x,y,seed=0)=>{let n=Math.imul(x+173,374761393)^Math.imul(y+97,668265263)^Math.imul(seed+11,1274126177);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967295;};
   const grid=new Map(tiles.map(t=>[`${t.x},${t.y}`,t])),visited=new Set(),themes=new Map(),result=[];
   const directions=[[0,-1,0],[1,0,-Math.PI/2],[0,1,Math.PI],[-1,0,Math.PI/2]];
@@ -36,9 +46,18 @@ export function dressingPlan(tiles){
     if(!['floor','corridor'].includes(t.type)||t.object||t.trap)continue;
     if(directions.some(([dx,dy])=>/stairs|door/.test(grid.get(`${t.x+dx},${t.y+dy}`)?.type||'')))continue;
     const walls=directions.filter(([dx,dy])=>['wall','stone'].includes(grid.get(`${t.x+dx},${t.y+dy}`)?.type));
-    if(!walls.length||hash(t.x,t.y,31)>.68||hash(t.x,t.y,121)<.14)continue;
+    if(!walls.length){
+      // Low floor scatter and overhead details in open rooms, never in a
+      // puzzle lane, doorway or stair approach. Blue-noise-like spacing.
+      if(style.id==='sokoban'||t.type!=='floor'||hash(t.x,t.y,137)<.92)continue;
+      if(directions.some(([dx,dy])=>grid.get(`${t.x+dx},${t.y+dy}`)?.type!=='floor'))continue;
+      if(result.some(p=>Math.hypot(p.cellX-t.x,p.cellY-t.y)<2.8))continue;
+      result.push({x:(t.x+.5)*3+(hash(t.x,t.y,138)-.5)*1.1,z:(t.y+.5)*3+(hash(t.x,t.y,139)-.5)*1.1,angle:hash(t.x,t.y,140)*6.28,theme:style.theme??themes.get(`${t.x},${t.y}`)??0,variant:Math.floor(hash(t.x,t.y,141)*3),phase:hash(t.x,t.y,142)*6.28,cellX:t.x,cellY:t.y,interior:true});continue;
+    }
+    if(hash(t.x,t.y,31)>.68||hash(t.x,t.y,121)<.57)continue;
+    if(result.some(p=>Math.hypot(p.cellX-t.x,p.cellY-t.y)<2.2))continue;
     const [dx,dy,angle]=walls[Math.floor(hash(t.x,t.y,124)*walls.length)];
-    result.push({x:(t.x+.5)*3+dx*1.48,z:(t.y+.5)*3+dy*1.48,angle,theme:themes.get(`${t.x},${t.y}`)??2,variant:Math.floor(hash(t.x,t.y,122)*3),phase:hash(t.x,t.y,123)*Math.PI*2,cellX:t.x,cellY:t.y});
+    result.push({x:(t.x+.5)*3+dx*1.48,z:(t.y+.5)*3+dy*1.48,angle,theme:style.theme??themes.get(`${t.x},${t.y}`)??2,variant:Math.floor(hash(t.x,t.y,122)*3),phase:hash(t.x,t.y,123)*Math.PI*2,cellX:t.x,cellY:t.y});
   }
   return result;
 }

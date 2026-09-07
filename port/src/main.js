@@ -4,7 +4,7 @@ import { DungeonAudio } from './audio.js';
 import { GameUI } from './ui.js';
 import {targetLoot} from './loot.js';
 import {GameInput,COMMAND_KEYS} from './input.js';
-let input,actionSequence=0,suppressUnlockMenu=false;
+let input,actionSequence=0,suppressUnlockMenu=false,defending=false;
 const pendingActions=new Map();
 import {CollisionWorld,integratePlayer,CELL} from './spatial.js';
 let collision=new CollisionWorld(),body=null,motion=null,collisionSignature='';
@@ -36,11 +36,13 @@ const ui=new GameUI({
   onPanel:()=>unlock(),
   onFullscreen:()=>toggleFullscreen(),
   onEscape:()=>openGameMenu(),
+  onNewRun:()=>{unlock();send({type:"new-run"});},
 });
 audio.setVolume?.(settings.volume);
 
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
-function unlock(){if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
+function setDefending(value){defending=!!value;renderer.guard(defending);send({type:"defend",active:defending});}
+function unlock(){setDefending(false);if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
 function capture(){if(playing&&!ui.hasPanel){canvas.focus({preventScroll:true});canvas.requestPointerLock?.().catch?.(()=>ui.setPointerLocked(false));}}
 function openGameMenu(){
   if(!playing)return;
@@ -87,7 +89,7 @@ function interact(){
   else command(',');
 }
 function attack(){
-  if(!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
+  if(defending||!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
   action({key:'.',melee:true,yaw});
 }
 function handleAction(name){
@@ -137,7 +139,7 @@ function connect(){
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
       motion=data;const p=data.player;
       if(!body||Math.hypot(body.x-p.x,body.z-p.z)>.65||data.blocked||data.transition)body={...p};
-      else {body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
+      else {body.speedScale=p.speedScale??1;body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
       renderer.setMotion(data);document.body.classList.toggle('floor-transition',data.transition&&!pendingPrompt);return;
     }
     if(data.type==='snapshot'){
@@ -179,11 +181,13 @@ function connect(){
       }
       return;
     }
+    if(data.type==='actor-attack'){renderer.actorAttack(data.actorId,data.ranged);return;}
     if(data.type==='clearPrompt'){if(pendingPrompt){pendingPrompt=null;ui.closePanels(false);}return;}
     if(data.type==='document'){unlock();ui.showMenu({id:'document',title:data.title,items:(data.lines||[]).map((text,i)=>({id:i,text,selectable:false})),readOnly:true});}
     if(data.type==='commands')commands=data.commands.filter(c=>c.name!=='#'&&c.name!=='?').map(c=>({...c,key:c.key?String.fromCharCode(c.key):`#${c.name}`,category:commands.find(x=>x.name===c.name)?.category||'Journal & system'}));
     if(data.type==='notice'||data.type==='message')ui.message(data.text);
     if(data.type==='failure'){ui.setEngineStatus(data.text,false);ui.message(data.text);playing=false;ui.setMode('title');}
+    if(data.type==='new-run-ready'){playing=false;world=null;body=null;motion=null;lastLevel=null;ui.closePanels(false);ui.setMode('title');ui.setEngineStatus('Ready for a new expedition',true);titleScene();return;}
     if(data.type==='ended'){
       playing=false;unlock();
       const saved=data.saved || (data.snapshot?.messages||world?.messages||[]).some(m=>/^saving\.\.\./i.test(typeof m==='string'?m:m.text));
@@ -204,7 +208,7 @@ function headingName(angle){return ['N','NW','W','SW','S','SE','E','NE'][((Math.
 document.addEventListener('pointerlockchange',()=>{
   const locked=document.pointerLockElement===canvas;
   if(!locked){
-    input?.clear();send({type:'release'});
+    setDefending(false);input?.clear();send({type:'release'});
     // Browsers can consume Escape before JavaScript receives keydown.
     if(playing&&!ui.panel&&!suppressUnlockMenu)ui.showSettings();
   }
@@ -216,12 +220,21 @@ canvas.addEventListener('click',()=>{audio.start();if(document.pointerLockElemen
 canvas.addEventListener('mousedown',e=>{
   if(!playing||ui.hasPanel)return;
   if(e.button===0&&document.pointerLockElement===canvas)attack();
-  if(e.button===2&&document.pointerLockElement===canvas){command('Z');}
+  if(e.button===2&&document.pointerLockElement===canvas){setDefending(true);}
 });
+window.addEventListener('mouseup',e=>{if(e.button===2)setDefending(false);});
+window.addEventListener('blur',()=>setDefending(false));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)setDefending(false);});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 document.querySelector('#mouse-capture').addEventListener('click',capture);
 window.addEventListener('resize',()=>renderer.resize());
-document.addEventListener('fullscreenchange',()=>{renderer.resize();ui.setFullscreen(!!document.fullscreenElement);});
+document.addEventListener('fullscreenchange',async()=>{
+  renderer.resize();ui.setFullscreen(!!document.fullscreenElement);
+  if(document.fullscreenElement){
+    try{await navigator.keyboard?.lock?.(['Escape']);}
+    catch{ui.message('Allow keyboard capture to keep Escape in the game. F10 exits fullscreen.');}
+  }else navigator.keyboard?.unlock?.();
+});
 
 // A decorative title backdrop. Play uses only maps supplied by the native engine.
 function titleScene(){
@@ -239,8 +252,8 @@ function frame(time){
   const running=input.is('run'),crouch=input.is('crouch');
   if(playing&&!ui.hasPanel){
     if(input.is('turnLeft'))yaw+=dt*1.9;if(input.is('turnRight'))yaw-=dt*1.9;
-    const movement=input.motion(yaw);
-    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale||1),motion?.actors||[]);
+    const movement={...input.motion(yaw),defend:defending};
+    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale??1),motion?.actors||[]);
     if(time-sendAt>33){send({type:'input',...movement});sendAt=time;}
   }
   const previousX=pose.x,previousY=pose.y;

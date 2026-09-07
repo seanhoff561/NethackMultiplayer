@@ -1,3 +1,4 @@
+import {creatureProfile} from '../src/creatures.js';
 // NetHack: Descent, 2026-09-07. Authoritative fixed-step spatial simulation.
 import {CollisionWorld,integratePlayer,stairFinished,stairLocal,stairWorld,CELL,cellKey} from '../src/spatial.js';
 
@@ -15,18 +16,18 @@ export class SpatialSimulation {
     }
     this.blocked=p.immobile||p.hp<=0;
     this.nativePlayer={x:p.x,z:p.y};
-    this.player.speedScale=p.speedScale||1;
+    this.player.speedScale=p.speedScale??1;
     const present=new Set();
     for(const m of snapshot.actors||[]) {
       present.add(m.id);let actor=this.actors.get(m.id);
-      if(!actor){actor={...this.world.spawn(m.x,m.y),id:m.id,radius:.3};this.actors.set(m.id,actor);}
+      if(!actor){actor={...this.world.spawn(m.x,m.y),id:m.id,radius:creatureProfile(m).radius};this.actors.set(m.id,actor);}
       // Preserve fractional placement; only magical relocation changes it abruptly.
       if(actor.projected&&Math.hypot(m.x-actor.projected.x,m.y-actor.projected.z)>2){actor.x=(m.x+.5)*CELL;actor.z=(m.y+.5)*CELL;actor.y=0;}
-      actor.data=m;
+      actor.data=m;actor.radius=creatureProfile(m).radius;
     }
     for(const id of this.actors.keys())if(!present.has(id))this.actors.delete(id);
   }
-  setInput(input){this.input={forward:Math.max(-1,Math.min(1,Number(input.forward)||0)),strafe:Math.max(-1,Math.min(1,Number(input.strafe)||0)),yaw:Number.isFinite(input.yaw)?input.yaw:0,run:!!input.run,crouch:!!input.crouch};this.inputAt=this.time;}
+  setInput(input){this.input={forward:Math.max(-1,Math.min(1,Number(input.forward)||0)),strafe:Math.max(-1,Math.min(1,Number(input.strafe)||0)),yaw:Number.isFinite(input.yaw)?input.yaw:0,run:!!input.run,crouch:!!input.crouch,defend:!!input.defend};this.inputAt=this.time;}
   release(){this.input={yaw:this.input.yaw||0};}
   waypoint(actor,target) {
     const stair=this.world.stairAt(actor.x,actor.z)||this.world.stairAt(target.x,target.z);
@@ -41,7 +42,7 @@ export class SpatialSimulation {
         return target;
       }
     }
-    if(this.world.lineClear(actor,target,.31))return target;
+    if(this.world.lineClear(actor,target,actor.radius))return target;
     const sx=Math.floor(actor.x/CELL),sz=Math.floor(actor.z/CELL),tx=Math.floor(target.x/CELL),tz=Math.floor(target.z/CELL);
     const key=`${sx},${sz}:${tx},${tz}`;
     let path=this.routes.get(key);
@@ -57,13 +58,13 @@ export class SpatialSimulation {
       path=[];if(found){let k=goal;while(k&&k!==start){const [x,z]=k.split(',').map(Number);path.unshift({x:(x+.5)*CELL,z:(z+.5)*CELL});k=previous.get(k);}}
       if(this.routes.size>1500)this.routes.clear();this.routes.set(key,path);
     }
-    for(let i=path.length-1;i>=0;i--)if(this.world.lineClear(actor,path[i],.31))return path[i];
+    for(let i=path.length-1;i>=0;i--)if(this.world.lineClear(actor,path[i],actor.radius))return path[i];
     return path[0]||actor;
   }
   update(dt) {
     this.time+=dt;if(!this.player)return null;
     const bodies=[...this.actors.values()];
-    if(!this.blocked&&!this.transition&&this.time-this.inputAt<.3)integratePlayer(this.world,this.player,this.input,dt*(this.player.speedScale||1),bodies);
+    if(!this.blocked&&!this.transition&&this.time-this.inputAt<.3)integratePlayer(this.world,this.player,this.input,dt*(this.player.speedScale??1),bodies);
     for(const a of bodies) {
       a.moving=false;
       const d=a.data;if(!d.canMove||d.sleeping||d.speed<=0||d.stationary)continue;
@@ -79,14 +80,14 @@ export class SpatialSimulation {
         const detection=this.input.crouch?8:this.input.run?22:17;
         if(distance<detection&&this.world.lineClear(a,this.player,.04)) {a.alertUntil=this.time+12;a.lastKnown={x:this.player.x,z:this.player.z,y:this.player.y};}
         if(d.fleeing)target={x:a.x+(a.x-this.player.x),z:a.z+(a.z-this.player.z)};
-        else if(distance>1.12&&a.alertUntil>this.time)target=a.lastKnown;
+        else if(distance>Math.max(1.12,a.radius+.38)&&a.alertUntil>this.time)target=a.lastKnown;
       } else if(d.peaceful&&!d.tame) {
         if(!a.wander||this.time>a.wanderAt){const angle=a.id*2.399+Math.floor(this.time/5)*1.7;a.wander={x:a.x+Math.cos(angle)*2,z:a.z+Math.sin(angle)*2};a.wanderAt=this.time+5;}
         target=a.wander;
       }
       if(!target)continue;
       const next=this.waypoint(a,target),dx=next.x-a.x,dz=next.z-a.z,len=Math.hypot(dx,dz);if(len<.05)continue;
-      const speed=Math.min(4.8,d.speed/12*2.25)*(d.peaceful&&!d.tame?.4:1),step=Math.min(len,speed*dt);
+      const speed=Math.min(8.5,d.speed/12*5.15)*(d.peaceful&&!d.tame?.4:1),step=Math.min(len,speed*dt);
       const before={x:a.x,z:a.z};this.world.move(a,dx/len*step,dz/len*step,[this.player,...bodies]);
       a.moving=Math.hypot(a.x-before.x,a.z-before.z)>.001;
       if(a.moving)a.yaw=Math.atan2(a.x-before.x,a.z-before.z);
@@ -104,6 +105,7 @@ export class SpatialSimulation {
       const candidates=[];for(let x=this.projected.x-1;x<=this.projected.x+1;x++)for(let z=this.projected.z-1;z<=this.projected.z+1;z++)if(this.world.walkable(x,z))candidates.push({x,z});
       this.projected=candidates.sort((a,b)=>Math.hypot((a.x+.5)*CELL-p.x,(a.z+.5)*CELL-p.z)-Math.hypot((b.x+.5)*CELL-p.x,(b.z+.5)*CELL-p.z))[0]||this.nativePlayer;
     }
+    session.write({kind:'defend',value:!this.blocked&&!this.transition&&this.time-this.inputAt<.3&&!!this.input.defend});
     session.write({kind:'position',value:[this.sequence,...this.level.split(':').map(Number),p.x,p.z,p.y,this.projected.x,this.projected.z]});
     for(const a of this.actors.values()){
       a.projected={x:Math.floor(a.x/CELL),z:Math.floor(a.z/CELL)};
@@ -118,7 +120,7 @@ export class SpatialSimulation {
       return d<1.85&&Math.abs(a.y-p.y)<1.4&&(-Math.sin(yaw)*dx-Math.cos(yaw)*dz)/Math.max(.001,d)>.55&&this.world.lineClear(p,a,.05);
     }).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0]?.id??null;
   }
-  packet(){return {type:'motion',levelId:this.level,time:this.time,spawnYaw:this.savedYaw,player:this.player?{...this.player}:null,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y,yaw:a.yaw,moving:!!a.moving,visible:a.data.visible})),transition:this.transition,blocked:this.blocked};}
+  packet(){return {type:'motion',levelId:this.level,time:this.time,spawnYaw:this.savedYaw,player:this.player?{...this.player}:null,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y,yaw:a.yaw,radius:a.radius,moving:!!a.moving,visible:a.data.visible})),transition:this.transition,blocked:this.blocked};}
   serialize(){return {levelId:this.level,time:this.time,player:this.player,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y})),yaw:this.input.yaw||0};}
   restore(saved){
     if(!saved||saved.levelId!==this.level||!saved.player||!Number.isFinite(saved.player.x)||!Number.isFinite(saved.player.z))return false;

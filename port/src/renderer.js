@@ -1,10 +1,13 @@
+import {itemProfile,detailedItem} from './item-models.js';
+import {creatureProfile} from './creatures.js';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT} from './spatial.js';
 import {lootPositions} from './loot.js';
 import {swingPose} from './presentation.js';
-import {voxelVolume,dressingPlan} from './voxel.js';
+import {voxelVolume,dressingPlan,branchStyle} from './voxel.js';
 
+const profileSpeed=e=>e.moving?1:0;
 const CELL = 3;
 const WALL_HEIGHT = 3.65;
 const PALETTE = [0x353442, 0x8f494c, 0x68775c, 0x77665f, 0x596488, 0x79577e, 0x527b7f, 0x8b8a96,
@@ -35,7 +38,7 @@ function canvasTexture(draw, size = 512) {
   return texture;
 }
 
-function stoneTexture(floor = false) {
+function stoneTexture(floor = false, rock = false) {
   const size=256,canvas=document.createElement('canvas'),heightCanvas=document.createElement('canvas');
   canvas.width=canvas.height=heightCanvas.width=heightCanvas.height=size;
   const ctx=canvas.getContext('2d'),hctx=heightCanvas.getContext('2d');
@@ -51,8 +54,8 @@ function stoneTexture(floor = false) {
     const broad=noise(x/size*8,y/size*8,8),grain=noise(x/size*64,y/size*64,64),fine=noise(x/size*256,y/size*256,256);
     const wy=y+(broad-.5)*2.5, row=Math.floor(wy/rowHeight), rowY=((wy%rowHeight)+rowHeight)%rowHeight;
     const wx=x+(row%2)*brickWidth*.5+(grain-.5)*1.5,col=Math.floor(wx/brickWidth),brickX=((wx%brickWidth)+brickWidth)%brickWidth;
-    const edge=Math.min(brickX,brickWidth-brickX,rowY,rowHeight-rowY),bevel=smooth(Math.min(1,Math.max(0,(edge-.6)/2.6)));
-    const variation=hash((col%columns+columns)%columns,(row%rows+rows)%rows,floor?14:15);
+    const edge=Math.min(brickX,brickWidth-brickX,rowY,rowHeight-rowY),bevel=rock?1:smooth(Math.min(1,Math.max(0,(edge-.6)/2.6)));
+    const variation=rock?broad:hash((col%columns+columns)%columns,(row%rows+rows)%rows,floor?14:15);
     const veins=Math.max(0,1-Math.abs(grain-.42)*32)*(broad>.5?1:.2);
     const chip=Math.max(0,(fine-.73)*4),pore=(hash(x,y,80)>.975?.05:0);
     const relief=.44+broad*.12+grain*.08+fine*.035-chip*.12-pore;
@@ -169,6 +172,7 @@ export class DungeonRenderer {
 
     this.wallTexture = this.keep(stoneTexture());
     this.floorTexture = this.keep(stoneTexture(true));
+    this.rockTexture=this.keep(stoneTexture(false,true));this.rockBump=this.keep(this.rockTexture.userData.bump);
     this.wallBump=this.keep(this.wallTexture.userData.bump);this.floorBump=this.keep(this.floorTexture.userData.bump);
     this.woodTexture = this.keep(woodTexture());
     this.glowTexture = this.keep(glowTexture());
@@ -256,11 +260,10 @@ export class DungeonRenderer {
     if (signature !== this.terrainSignature) {
       this.terrainSignature = signature;
       this.levelId = levelId;
-      const branch=(snapshot.player?.dungeon||'').toLowerCase();
-      const hell=/gehennom|hell|vlad|sanctum/.test(branch),mine=/mine/.test(branch),endgame=/plane|astral/.test(branch);
-      this.wallMaterial.color.setHex(hell?0x776076:mine?0x79858d:endgame?0xa0a0bf:0x8b8d9f);
-      this.floorMaterial.color.setHex(hell?0x786379:mine?0x818a8b:0x8a8998);
-      this.scene.fog.color.setHex(hell?0x1b0907:mine?0x10120e:0x0b0d18);this.scene.background.copy(this.scene.fog.color);
+      this.branch=branchStyle(snapshot.player?.dungeon);
+      this.wallMaterial.map=this.branch.id==='mines'||this.branch.id==='infernal'?this.rockTexture:this.wallTexture;this.wallMaterial.bumpMap=this.wallMaterial.map===this.rockTexture?this.rockBump:this.wallBump;
+      this.wallMaterial.color.setHex(this.branch.wall);this.floorMaterial.color.setHex(this.branch.floor);
+      this.scene.fog.color.setHex(this.branch.fog);this.scene.background.copy(this.scene.fog.color);
       this._buildTerrain(tiles);
     }
     if (levelChanged) {
@@ -345,7 +348,7 @@ export class DungeonRenderer {
     this._instances(this.world, posts, this.wallMaterial);
     this._instances(this.world, water, this.waterMaterial);
     this._instances(this.world, lava, this.lavaMaterial);
-    this.dressing=dressingPlan(tiles);for(const prop of this.dressing)this._dressing(prop);this._batchDressing();
+    this.dressing=dressingPlan(tiles,this.snapshot?.player?.dungeon);for(const prop of this.dressing)this._dressing(prop);this._batchDressing();
     this.terrainTiles = grid;
     this._placeMotes(tiles);
   }
@@ -441,6 +444,8 @@ export class DungeonRenderer {
     // A dark opening beyond the final landing gives the connection real depth.
     this._stoneBox(group,this.wallMaterial,[.77,sign*H+2.9,1.49],[1.4,.35,.18]);
   }
+
+  actorAttack(id,ranged=false){const e=this.monsters.get(`id:${id}`);if(e){e.attackAt=this.time;e.rangedAttack=ranged;}}
 
   setMotion(packet) {
     this.motion=packet;
@@ -600,7 +605,7 @@ export class DungeonRenderer {
       let entity=this.pickups.get(key);
       if(entity&&entity.name!==item.name){this.items.remove(entity.group);this.pickups.delete(key);entity=null;}
       if(!entity){
-        const group=this._item(item.name,item.color,item.symbol);group.rotation.y=item.rotation;
+        const group=this._item(item.name,item.color,item.symbol,item);group.rotation.y=item.rotation;
         entity={group,born:this.time,name:item.name};this.items.add(group);this.pickups.set(key,entity);
       }
       entity.group.position.set(item.worldX,item.worldY,item.worldZ);
@@ -643,9 +648,9 @@ export class DungeonRenderer {
   }
 
   _creature(name, color, kind, data = {}) {
-    const label = name.toLowerCase();
+    const label = name.toLowerCase(),profile=creatureProfile({...data,name,symbol:kind});
     const group = new THREE.Group();
-    group.userData.name = name;
+    group.userData.name = name;group.userData.profile=profile;
     const body = new THREE.Group(); group.add(body); group.userData.body = body;
     const friendly = !!(data.tame || data.peaceful || /tame|peaceful|kitten|little dog|pet /.test(label));
     const primary = colorOf(color, friendly ? 0xa18764 : 0x748a56);
@@ -659,6 +664,14 @@ export class DungeonRenderer {
       for (let i = 0; i < 4; i++) this.mesh(body, 'sphere', jelly, [(i - 1.5) * 0.2, 0.28 + i % 2 * 0.12, Math.sin(i * 2) * 0.18], [0.85, 0.65 + i % 2 * 0.22, 0.86]);
       this.mesh(body, 'sphere', this.material(0x72835b, 0.1, 0.45, 0x102613), [0, 0.43, 0.13], [0.28, 0.26, 0.27]);
       group.userData.slime = true;
+    } else if(/elemental|vortex/.test(label)){
+      const fire=/fire|flaming|steam/.test(label),earth=/earth|dust/.test(label);
+      const matter=this.material(fire?0xb16a52:earth?0x6b6a74:0x708eab,.1,.83,fire?0x692412:0x101925);
+      const pieces=[];for(let i=0;i<14;i++){
+        const a=i*2.4,y=.18+i*.105,rr=.17+Math.sin(i*.4)*.2;
+        const m=this.mesh(body,'box',matter,[Math.sin(a)*rr,y,Math.cos(a)*rr],[.25+(i%3)*.07,.26,.25],[0,a,.2]);pieces.push(m);
+      }
+      group.userData.swirl=pieces;group.userData.hover=!earth;
     } else if (/floating eye|gas spore|sphere|beholder|vortex|elemental|light$/.test(label) || kind === 'e' || kind === 'v') {
       this.mesh(body, 'sphere', skin, [0, 0.97, 0], [0.82, 0.84, 0.78]);
       this.mesh(body, 'sphere', this.material(0xd8d1a9), [0, 1.01, 0.34], [0.48, 0.49, 0.22]);
@@ -717,6 +730,18 @@ export class DungeonRenderer {
       }
       if (dragon) for (let i = 0; i < 5; i++) this.mesh(body, 'sphere', skin, [Math.sin(i * 0.6) * 0.27, 0.43 - i * 0.04, -0.7 - i * 0.24], [0.32 - i * 0.045, 0.27 - i * 0.04, 0.42]);
       group.userData.wings = wings; group.userData.hover = !dragon;
+    } else if(/cockatrice|chickatrice|raven|bird/.test(label)||kind==='c'){
+      this.mesh(body,'sphere',skin,[0,.65,0],[.54,.72,.58]);
+      this.mesh(body,'sphere',skin,[0,1.12,.16],[.31,.33,.31]);
+      this.mesh(body,'cone',bone,[0,1.09,.4],[.16,.33,.14],[Math.PI/2,0,0]);
+      this._eyes(body,1.17,.3,.085,.035,friendly);
+      const legs=[],wings=[];for(const side of [-1,1]){
+        const leg=new THREE.Group();leg.position.set(side*.15,.4,0);body.add(leg);legs.push(leg);
+        this.mesh(leg,'box',bone,[0,-.19,0],[.065,.38,.07]);this.mesh(leg,'box',bone,[0,-.36,.09],[.16,.055,.27]);
+        const wing=new THREE.Group();wing.position.set(side*.23,.85,0);body.add(wing);wings.push(wing);
+        for(let i=0;i<4;i++)this.mesh(wing,'box',skin,[side*(.06+i*.045),-.12-i*.055,-.04],[.12,.36,.065],[.3,0,side*.25]);
+      }
+      group.userData.legs=legs;group.userData.wings=wings;
     } else if (/dog|wolf|jackal|fox|cat|kitten|feline|panther|tiger|jaguar|lynx|rat|mouse|rodent|horse|pony|unicorn|rothe|lamb|bear|lizard|newt|iguana|crocodile/.test(label) || /^[dfqru:]$/.test(kind)) {
       const cat = /cat|kitten|feline|panther|tiger|jaguar|lynx/.test(label) || kind === 'f';
       const rat = /rat|mouse|rodent/.test(label) || kind === 'r';
@@ -781,28 +806,57 @@ export class DungeonRenderer {
         this.mesh(body, 'sphere', this.material(0x727970, 0.66, 0.45), [0, 1.68, 0], [0.47, 0.28, 0.44]);
         this.mesh(body, 'box', this.material(0x727970, 0.66, 0.45), [0, 1.52, 0.236], [0.058, 0.34, 0.04]);
       }
-      if (/demon|imp|minotaur|devil/.test(label)) for (const side of [-1, 1]) this.mesh(body, 'cone', bone, [side * 0.18, 1.8, -0.03], [0.14, 0.38, 0.13], [0.25, 0, side * -0.35]);
-      if (!/ghost|wraith|nymph|human|shopkeeper|priest/.test(label)) {
+      if (profile.style==='demon'||/minotaur/.test(label)) for (const side of [-1, 1]) this.mesh(body, 'cone', bone, [side * 0.18, 1.8, -0.03], [0.14, 0.38, 0.13], [0.25, 0, side * -0.35]);
+      if (data.weapon || (data.weapon===undefined&&!/ghost|wraith|nymph|human|shopkeeper|priest/.test(label))) {
         const weapon = new THREE.Group(); weapon.position.set(0, -0.55, 0.13); weapon.rotation.x = -0.32; arms[1].add(weapon);
-        if (/mage|wizard|lich/.test(label)) this._weapon(weapon, 'staff');
+        if(data.weapon)this._weapon(weapon,data.weapon);
+        else if (/mage|wizard|lich/.test(label)) this._weapon(weapon, 'staff');
         else if (/ogre|troll|giant/.test(label)) this._weapon(weapon, 'club');
         else this._weapon(weapon, /orc|dwarf/.test(label) ? 'axe' : 'short sword');
         weapon.scale.setScalar(0.62);
       }
-      if (small) body.scale.setScalar(/kobold|gnome|goblin/.test(label) ? 0.65 : 0.76);
-      if (giant) body.scale.setScalar(1.42);
+      group.userData.humanoid=true;
       if (/ghost|wraith/.test(label)) group.userData.hover = true;
+      const metal=this.material(profile.boss?0x4d425d:0x555a6c,.42,.77);
+      if(['orc','soldier','demon'].includes(profile.style)||profile.boss){
+        for(const side of [-1,1]){
+          this.mesh(body,'box',metal,[side*.34,1.29,0],[.28,.19,.4],[0,0,side*.18]);
+          if(profile.boss||profile.style==='demon')for(let i=0;i<3;i++)this.mesh(body,'cone',bone,[side*(.28+i*.055),1.46,0],[.075,.25+i*.035,.075],[0,0,side*.28]);
+        }
+        this.mesh(body,'box',metal,[0,1.05,.18],[.39,.38,.06]);
+        if(profile.style==='orc')for(const side of [-1,1])this.mesh(body,'cone',bone,[side*.095,1.37,.29],[.06,.14,.055]);
+      }
+      if(profile.style==='miner'){
+        for(let i=0;i<5;i++)this.mesh(body,'box',this.material(0x73615a),[(i-2)*.052,1.22-Math.abs(i-2)*.02,.245],[.06,.33,.09]);
+        this.mesh(body,'box',this.material(0xb4a086,.3,.6),[0,1.73,.238],[.12,.11,.055]);
+      }
+      if(profile.style==='caster'||profile.style==='undead'){
+        const cloak=new THREE.Group();cloak.position.set(0,1.24,-.16);body.add(cloak);
+        for(let i=0;i<5;i++)this.mesh(cloak,'box',clothing,[(i-2)*.105,-.42,0],[.11,.98-Math.abs(i-2)*.09,.045],[.12,0,0]);
+        group.userData.cloak=cloak;
+      }
+      if(profile.boss){this.mesh(body,'box',this.material(0x937795,.2,.7,0x241229),[0,1.08,.224],[.17,.23,.04]);}
       group.userData.legs = legs; group.userData.arms = arms;
     }
+    if(group.userData.humanoid)body.scale.setScalar(profile.height/1.8);
+    else if(profile.large){
+      body.updateMatrixWorld(true);const bounds=new THREE.Box3().setFromObject(body),size=bounds.getSize(new THREE.Vector3());
+      const scale=Math.min(profile.height/Math.max(.1,size.y),2.65/Math.max(.1,size.x),2.6/Math.max(.1,size.z));body.scale.multiplyScalar(scale);
+    }
+    if(profile.boss&&group.userData.humanoid){body.scale.x*=1.55;body.scale.z*=1.35;}
+    group.userData.baseScale=body.scale.clone();
     return group;
   }
 
-  _item(name, color, kind) {
+  _item(name, color, kind, data={}) {
     const group = new THREE.Group();
-    const label = name.toLowerCase();
+    const profile=itemProfile(name,kind,data),label=name.toLowerCase(),family=profile.family;
     const material = this.material(colorOf(color, 0x9f8f63));
-    this._shadow(group, 0.9);
-    if (/gold|zorkmid|coin/.test(label) || kind === '$') {
+    this._shadow(group, 0.9);group.userData.modelKey=profile.key;group.userData.family=family;
+    if(detailedItem(this,group,profile,colorOf(color,0x80788b)))return group;
+    // Visible proportions and fittings distinguish appearances without exposing enchantments.
+    group.scale.set(1+profile.variant*.06,1+profile.variant*.1,1+profile.variant*.06);
+    if (family==='gold') {
       for (let i = 0; i < 9; i++) this.mesh(group, 'cylinder', this.material(0xd2b461, 0.77, 0.3), [Math.sin(i * 2.4) * 0.2, 0.028 + (i % 3) * 0.021, Math.cos(i * 2.4) * 0.19], [0.16, 0.027, 0.16], [0.05 * (i % 2), i, i % 4 === 0 ? 0.15 : 0]);
     } else if (/potion|bottle/.test(label) || kind === '!') {
       if(!this.geometries.has('potion-bottle')){
@@ -830,9 +884,9 @@ export class DungeonRenderer {
         this.mesh(group, 'sphere', this.wallMaterial, [0, 0.91, 0], [0.59, 1.44, 0.51]);
         this.mesh(group, 'sphere', this.wallMaterial, [0, 1.75, 0], [0.49, 0.52, 0.42]);
       } else this.mesh(group, 'ico', this.wallMaterial, [0, 0.78, 0], [1.91, 1.7, 1.87], [0.2, 0.4, 0.15]);
-    } else if (/gem|crystal|diamond|ruby|emerald|opal|sapphire|amethyst|stone|rock/.test(label) || kind === '*') {
+    } else if (family==='gem') {
       this.mesh(group, /rock|stone/.test(label) ? 'ico' : 'gem', this.material(colorOf(color, 0x80bcb2), 0.4, 0.23), [0, 0.135, 0], [0.31, 0.28, 0.3], [0.3, 0.7, 0.2]);
-    } else if (/ring|amulet/.test(label) || kind === '=' || kind === '"') {
+    } else if (family==='ring'||family==='amulet') {
       this.mesh(group, 'torus', this.material(0xc4af70, 0.8, 0.3), [0, 0.035, 0], [0.25, 0.25, 0.18], [Math.PI / 2, 0, 0]);
       this.mesh(group, 'gem', material, [0, 0.07, 0.13], [0.13, 0.1, 0.14]);
     } else if (/sword|dagger|knife|axe|mace|club|staff|spear|lance|bow|arrow|bolt|dart|shuriken|pick|hammer|whip|wand/.test(label) || kind === ')' || kind === '/') {
@@ -876,30 +930,56 @@ export class DungeonRenderer {
   _weapon(parent, name='long sword') {
     const label=name.toLowerCase(),steel=this.material(0x565c70,.46,.73),edge=this.material(0x828799,.52,.64),gold=this.material(0x666072,.45,.7),leather=this.material(0x4f3726);
     if(/bare hands|empty|unarmed/.test(label))return;
-    if(/bow/.test(label)) {
+    if(/crossbow/.test(label)&&!/bolt/.test(label)){
+      this.mesh(parent,'box',this.woodMaterial,[0,.25,0],[.12,1,.13]);
+      for(const side of [-1,1])this.bone(parent,[0,.57,0],[side*.47,.42,.08],.035,steel);
+      this.bone(parent,[-.47,.42,.08],[.47,.42,.08],.005,edge);return;
+    }
+    if(/sling|boomerang/.test(label)){
+      for(const side of [-1,1])this.bone(parent,[0,0,0],[side*.26,.43,0],/sling/.test(label)?.012:.06,leather);
+      if(/sling/.test(label))this.mesh(parent,'box',leather,[0,-.04,0],[.13,.19,.035]);return;
+    }
+    if(/shuriken|throwing star/.test(label)){
+      for(let i=0;i<4;i++)this.mesh(parent,'cone',steel,[Math.sin(i*Math.PI/2)*.1,Math.cos(i*Math.PI/2)*.1,0],[.1,.23,.025],[0,0,-i*Math.PI/2]);return;
+    }
+    if(/trident|fork|grappling/.test(label)){
+      this.bone(parent,[0,-.2,0],[0,1.1,0],.035,this.woodMaterial);
+      for(const side of [-1,0,1]){this.bone(parent,[0,1.04,0],[side*.17,1.17,0],.028,steel);this.mesh(parent,'cone',steel,[side*.17,1.3,0],[.08,.3,.04]);}return;
+    }
+    if(/unicorn horn/.test(label)){this.mesh(parent,'cone',this.material(0xb8ad9b),[0,.35,0],[.15,.95,.15]);return;}
+    if(/flail/.test(label)){
+      this.bone(parent,[0,-.16,0],[0,.35,0],.035,this.woodMaterial);
+      for(let i=0;i<5;i++)this.mesh(parent,'torus',steel,[i*.055,.4+i*.055,0],[.06,.09,.06],[0,i%2*Math.PI/2,0]);
+      this.mesh(parent,'ico',steel,[.29,.72,0],[.24,.24,.24]);return;
+    }
+    if(/bow|\byumi\b/.test(label)&&!/bolt/.test(label)) {
       for(const side of [-1,1]){this.bone(parent,[0,0,0],[side*.15,side*.45,0],.036,this.woodMaterial);this.bone(parent,[side*.15,side*.45,0],[0,side*.78,.08],.024,this.woodMaterial);}
       this.bone(parent,[0,-.78,.08],[0,.78,.08],.004,edge);return;
     }
-    if(/arrow|bolt|dart/.test(label)){
+    if(/arrow|bolt|dart|\bya\b/.test(label)){
       const short=/dart/.test(label),length=short?.36:.92;
       this.bone(parent,[0,0,0],[0,length,0],short?.011:.014,this.woodMaterial);
       this.mesh(parent,'cone',steel,[0,length+.07,0],[.065,.19,.025]);
       for(let i=0;i<3;i++)this.mesh(parent,'box',this.material(0x9b8c6d),[Math.cos(i*2.094)*.022,.11,Math.sin(i*2.094)*.022],[.07,.17,.007],[0,i*2.094,0]);return;
     }
-    if(/whip/.test(label)){
+    if(/whip|rubber hose/.test(label)){
       this.bone(parent,[0,-.15,0],[0,.2,0],.035,leather);
       for(let i=0;i<22;i++){const t=i/21,a=t*Math.PI*3,b=(i+1)/21*Math.PI*3;this.bone(parent,[Math.sin(a)*.15,.25+t*.35,Math.cos(a)*.15],[Math.sin(b)*.15,.25+(i+1)/21*.35,Math.cos(b)*.15],.013,leather);}return;
     }
-    const long=/staff|spear|lance|pole|halberd/.test(label),wand=/wand/.test(label);
-    this.mesh(parent,'cylinder',long||wand?this.woodMaterial:leather,[0,long?.5:0,0],[.065,long?1.75:wand?.62:.31,.065]);
+    const long=/staff|spear|lance|pole|halberd|glaive|guisarme|bardiche|voulge|ranseur|spetum|fauchard|partisan|lucern|bec de corbin|bill-guisarme|javelin/.test(label),wand=/wand/.test(label);
+    this.mesh(parent,'cylinder',wand&&/iron|steel|silver|copper|brass|platinum|tin|hexagonal/.test(label)?steel:long||wand?this.woodMaterial:leather,[0,long?.5:0,0],[.065,long?1.75:wand?.62:.31,.065]);
     if(long||wand){
-      if(/spear|lance|halberd/.test(label))this.mesh(parent,'cone',steel,[0,1.51,0],[.15,.5,.06]);
+      if(/spear|lance|halberd|glaive|guisarme|bardiche|voulge|ranseur|spetum|fauchard|partisan|lucern|bec de corbin|javelin/.test(label))this.mesh(parent,'cone',steel,[0,1.51,0],[.15,.5,.06]);
       else{this.mesh(parent,'gem',gold,[0,wand?.35:1.4,0],[.12,.17,.12]);if(/staff/.test(label))this.mesh(parent,'gem',this.material(0x8baeb7,.3,.23,0x294e60),[0,1.54,0],[.15,.2,.15]);}
       return;
     }
     this.mesh(parent,'sphere',gold,[0,-.19,0],[.105,.11,.1]);
     for(let i=0;i<7;i++)this.mesh(parent,'torus',this.material(0x775b39),[0,-.12+i*.038,0],[.071,.071,.2],[Math.PI/2,0,0]);
-    if(/axe|pick/.test(label)){
+    if(/pick|mattock/.test(label)){
+      this.bone(parent,[0,-.16,0],[0,.96,0],.038,this.woodMaterial);
+      this.mesh(parent,'box',steel,[0,.77,0],[.18,.17,.15]);
+      for(const side of [-1,1])this.mesh(parent,'cone',steel,[side*.24,.73,0],[.16,.51,/mattock/.test(label)&&side===1?.22:.07],[0,0,-side*1.72]);
+    }else if(/axe/.test(label)){
       this.mesh(parent,'cylinder',this.woodMaterial,[0,.36,0],[.075,.85,.075]);
       if(!this.geometries.has('axe-head')){
         const shape=new THREE.Shape();shape.moveTo(-.045,.55);shape.lineTo(.09,.53);shape.quadraticCurveTo(.2,.55,.31,.42);shape.quadraticCurveTo(.58,.58,.47,.99);shape.quadraticCurveTo(.2,.78,.06,.85);shape.lineTo(-.045,.82);shape.closePath();
@@ -908,12 +988,12 @@ export class DungeonRenderer {
       const head=new THREE.Mesh(this.geometries.get('axe-head'),steel);head.castShadow=true;parent.add(head);
       this.mesh(parent,'cylinder',gold,[0,.69,0],[.11,.29,.11]);
       if(/battle|pick/.test(label))this.mesh(parent,'cone',steel,[-.23,.69,0],[.19,.5,.08],[0,0,Math.PI/2]);
-    }else if(/mace|hammer|club/.test(label)){
+    }else if(/mace|hammer|club|morning star|aklys/.test(label)){
       this.mesh(parent,'cylinder',this.woodMaterial,[0,.28,0],[.085,.7,.085]);
-      this.mesh(parent,/hammer/.test(label)?'box':'ico',/club/.test(label)?this.woodMaterial:steel,[0,.68,0],[.34,.35,.29]);
-      if(/mace/.test(label))for(let i=0;i<6;i++)this.mesh(parent,'cone',edge,[Math.sin(i)*.17,.69,Math.cos(i)*.17],[.08,.25,.08],[Math.cos(i)*1.2,0,Math.sin(i)*1.2]);
+      this.mesh(parent,/hammer/.test(label)?'box':'ico',/club|aklys/.test(label)?this.woodMaterial:steel,[0,.68,0],[.34,.35,.29]);
+      if(/mace|morning star/.test(label))for(let i=0;i<6;i++)this.mesh(parent,'cone',edge,[Math.sin(i)*.17,.69,Math.cos(i)*.17],[.08,.25,.08],[Math.cos(i)*1.2,0,Math.sin(i)*1.2]);
     }else{
-      const length=/dagger|knife|short|athame/.test(label)?.64:1.72;
+      const length=/dagger|knife|short|athame|scalpel|stiletto|worm tooth/.test(label)?.64:/two-handed|tsurugi/.test(label)?1.94:1.72;
       for(const side of [-1,1]){
         this.bone(parent,[0,.19,0],[side*.12,.19,0],.032,gold);
         this.bone(parent,[side*.12,.19,0],[side*.23,.13,.008],.027,steel);
@@ -1015,6 +1095,48 @@ export class DungeonRenderer {
     const animate=(type,object,extra={})=>{object.userData.decorativeMotion=true;this.features.push({type,group:object,phase:p.phase,...extra});};
     // Wall attachments stay within the unwalkable margin. Low fragments and
     // overhead features leave native routes, door approaches and stairs open.
+    if(p.interior){
+      // Step-height fragments and ceiling fittings occupy the room's volume
+      // without invisible furniture colliders or obstructing native puzzles.
+      for(let i=0;i<7;i++){
+        const a=i*2.399+p.phase,r=.2+hash(i,p.cellX,p.cellY)*.65;
+        this.mesh(group,'box',p.theme===4?this.woodMaterial:stone,[Math.cos(a)*r,.03,Math.sin(a)*r],[.15+hash(i,2)*.18,.035+hash(i,3)*.035,.14],[0,a,0]);
+      }
+      if(p.variant===0){
+        const hanging=new THREE.Group();hanging.position.set(0,3.45,0);group.add(hanging);
+        for(let i=0;i<5;i++)this.mesh(hanging,'torus',iron,[0,-i*.1,0],[.08,.13,.08],[0,i%2*Math.PI/2,0]);
+        for(const side of [-1,1])this.mesh(hanging,'box',iron,[side*.18,-.53,0],[.38,.045,.045]);
+        animate('hanging',hanging,{amplitude:.02});
+      }else if(p.variant===1){
+        this.mesh(group,'box',this.material(p.theme===6?0x462831:0x343345,0,1),[0,.006,0],[1.1,.009,.65],[0,.2,0]);
+        for(let i=0;i<4;i++)this.mesh(group,'box',bone,[(i-1.5)*.22,.013,.05],[.035,.009,.21]);
+      }
+      return;
+    }
+    if(p.theme>=4){
+      if(p.theme===4){
+        // Gnomish mining timbers, exposed ore and suspended tools.
+        for(const side of [-1,1])this.mesh(group,'box',this.woodMaterial,[side*.62,1.7,.09],[.13,3.4,.17]);
+        this.mesh(group,'box',this.woodMaterial,[0,3.23,.1],[1.38,.19,.19]);
+        for(let i=0;i<5;i++)this.mesh(group,'gem',this.material(0x777898,.25,.65,0x19172a),[(i-2)*.16,.35+(i%3)*.12,.12],[.13,.25,.13],[0,i*.8,.3]);
+        this.mesh(group,'box',iron,[.25,1.8,.18],[.47,.07,.055],[0,0,.15]);this.mesh(group,'box',this.woodMaterial,[.25,1.52,.17],[.045,.58,.045]);
+      }else if(p.theme===5){
+        // Recessed puzzle inscriptions; absolutely no floor obstacles.
+        for(let i=0;i<3;i++)this.mesh(group,'box',stone,[(i-1)*.28,1.8,.06],[.24,.58,.12]);
+        for(let i=0;i<4;i++)this.mesh(group,'box',bone,[(i-1.5)*.17,1.8,.132],[.027,.21+(i%2)*.17,.015]);
+      }else if(p.theme===6){
+        const obsidian=this.material(0x382737,.35,.61),ember=this.material(0x8e4858,0,.8,0x4b1224);
+        for(let i=0;i<5;i++)this.mesh(group,'box',obsidian,[(i-2)*.2,.8+Math.abs(i-2)*.17,.08],[.22,1.8,.14],[0,0,(i-2)*.06]);
+        for(const side of [-1,1])this.mesh(group,'box',ember,[side*.15,1.9,.18],[.025,.7,.017],[0,0,side*.17]);
+        this.features.push({type:'rune',material:ember});
+      }else{
+        const clothColor=this.material(p.theme===7?0x827898:0x3e3956,0,.85);
+        const banner=new THREE.Group();banner.position.set(0,3.13,.12);group.add(banner);
+        for(let i=0;i<5;i++)this.mesh(banner,'box',clothColor,[(i-2)*.15,-.65,0],[.15,1.5-Math.abs(i-2)*.1,.03]);
+        this.mesh(banner,'gem',bone,[0,-.48,.035],[.17,.31,.018]);animate('hanging',banner,{amplitude:.014});
+      }
+      return;
+    }
     if(p.theme===0){
       if(p.variant===0){
         this.mesh(group,'box',dark,[0,1.42,.03],[.78,2.18,.08]);
@@ -1180,11 +1302,23 @@ export class DungeonRenderer {
       if(entity.deathAt){const t=(this.time-entity.deathAt)/.38;entity.group.scale.y=Math.max(.08,1-t*.9);if(t>=1){this.creatures.remove(entity.group);this._disposeActor(entity);this.monsters.delete(key);}continue;}
 
       const g=entity.group,travel=g.position.distanceTo(entity.target);g.position.lerp(entity.target,1-Math.exp(-dt*18));
-      const body=g.userData.body;if(body)body.position.y=Math.sin(this.time*(g.userData.hover?2.4:3)+entity.phase)*(g.userData.hover?.12:.012);
-      const desired=entity.moving&&Number.isFinite(entity.yaw)?entity.yaw:Math.atan2(this.camera.position.x-g.position.x,this.camera.position.z-g.position.z);g.rotation.y+=Math.atan2(Math.sin(desired-g.rotation.y),Math.cos(desired-g.rotation.y))*Math.min(1,dt*6);
-      (g.userData.legs||[]).forEach((leg,i)=>leg.rotation.x=Math.sin(this.time*9+entity.phase+i*Math.PI)*(entity.moving?.4:Math.min(.45,travel*.7)));
-      (g.userData.wings||[]).forEach((wing,i)=>wing.rotation.z=Math.sin(this.time*9+entity.phase)*.45*(i?1:-1));
-      if(g.userData.slime)body.scale.y=1+Math.sin(this.time*2+entity.phase)*.08;
+      const body=g.userData.body,base=g.userData.baseScale;
+      entity.walkBlend=THREE.MathUtils.lerp(entity.walkBlend||0,entity.moving?1:0,1-Math.exp(-dt*10));
+      entity.stride=(entity.stride||0)+dt*(profileSpeed(entity)*7);
+      const stride=entity.stride+entity.phase,walk=entity.walkBlend;
+      const attackAge=this.time-(entity.attackAt??-10),attack=attackAge<.6?Math.sin(Math.PI*Math.min(1,attackAge/.6)):0;
+      const cut=attackAge<.6?Math.sin(Math.PI*Math.min(1,attackAge/.38)):0;
+      if(body){body.position.y=Math.sin(this.time*2.4+entity.phase)*(g.userData.hover?.12:.01)+Math.abs(Math.sin(stride))*.055*walk;
+        body.rotation.x=-attack*.13;body.position.z=attack*.15;body.rotation.z=Math.sin(stride)*walk*.022;}
+      const desired=entity.moving&&Number.isFinite(entity.yaw)?entity.yaw:attack?Math.atan2(this.camera.position.x-g.position.x,this.camera.position.z-g.position.z):g.rotation.y;
+      g.rotation.y+=Math.atan2(Math.sin(desired-g.rotation.y),Math.cos(desired-g.rotation.y))*Math.min(1,dt*9);
+      (g.userData.legs||[]).forEach((leg,i)=>leg.rotation.x=Math.sin(stride+(i%2)*Math.PI)*.6*walk);
+      (g.userData.arms||[]).forEach((arm,i)=>{arm.rotation.x=-Math.sin(stride+(i%2)*Math.PI)*.38*walk+(i?-(entity.rangedAttack?1.3:2.0)*cut:-.45*attack);});
+      (g.userData.wings||[]).forEach((wing,i)=>wing.rotation.z=(Math.sin(this.time*6+entity.phase)*.25+attack*.55)*(i?1:-1));
+      (g.userData.swirl||[]).forEach((piece,i)=>{piece.rotation.y=this.time*.45+i;piece.position.x=Math.sin(this.time*.6+i*2.4)*(.17+Math.sin(i*.4)*.2);});
+      if(g.userData.cloak)g.userData.cloak.rotation.x=Math.sin(this.time*2+entity.phase)*.035+walk*.12;
+      if(g.userData.slime)body.scale.y=base.y*(1+Math.sin(this.time*2+entity.phase)*.065+attack*.18);
+
     }
     for(const feature of this.features){
       const t=this.time,phase=feature.phase||0,g=feature.group;
@@ -1197,8 +1331,11 @@ export class DungeonRenderer {
     const swing=swingPose(this.time-this.attackTime,this.weaponName||'sword');
     this.rightHand.position.set(swing[0]+Math.sin(this.bobPhase*.5)*.012*this.motionBlend,swing[1]+bob,swing[2]);
     this.rightHand.rotation.set(swing[3],swing[4],swing[5]);
+    this.guardBlend=THREE.MathUtils.lerp(this.guardBlend||0,this.guarding?1:0,1-Math.exp(-dt*16));
+    const guard=this.guardBlend;
+    if(!this.hasShield){this.rightHand.position.lerp(new THREE.Vector3(.1,-.28,-.85),guard);this.rightHand.rotation.x=THREE.MathUtils.lerp(this.rightHand.rotation.x,-.15,guard);this.rightHand.rotation.z=THREE.MathUtils.lerp(this.rightHand.rotation.z,1.15,guard);}
     this.leftHand.position.set(this.guarding?-.15:-.49,this.guarding?-.17:(this.hasShield?-.59:-.7)+bob,-.95);
-    this.leftHand.rotation.set(.1,.15,this.hasShield?-.12:.45);
+    this.leftHand.position.set(-.49+guard*.34,-.59+guard*.42+bob,-.95);this.leftHand.rotation.set(.1,.15-guard*.4,-.12+guard*.12);
     for(let i=this.effects.length-1;i>=0;i--){const e=this.effects[i];e.life-=dt;e.group.position.addScaledVector(e.direction,dt*16);if(e.life<=0){this.scene.remove(e.group);this.effects.splice(i,1);}}
     this.renderer.clear();this.renderer.render(this.scene,this.camera);
     if(this.snapshot?.levelId!=='title'){this.renderer.clearDepth();this.renderer.render(this.viewScene,this.viewCamera);}

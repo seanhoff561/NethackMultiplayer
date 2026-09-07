@@ -28,3 +28,11 @@ test('wire encoding preserves control keys but forbids injected input lines',()=
   assert.equal(encodeInput({kind:'text',value:'hello\nk 121'}),'t hello k 121\n');
   assert.equal(encodeInput({kind:'menu',value:[1,4]}),'m 1,4\n');
 });
+
+test('cancelling or answering a busy command never queues input for its future prompt',()=>{
+  const s=harness();s.act({key:'.',idle:true});const count=s.inputs.length;
+  s.cancel();assert.equal(s.inputs.length,count);assert.equal(s.answer({kind:'key',value:'y'}),false);
+  assert.equal(s.inputs.length,count);s.accept({type:'request',kind:'command'});
+  s.act({key:'Sy'});s.accept({type:'request',kind:'yn',prompt:'Really save?',choices:'yn',default:110});
+  assert.deepEqual(s.inputs.at(-1),{kind:'key',value:'y'});assert.equal(s.detaching,false);
+});

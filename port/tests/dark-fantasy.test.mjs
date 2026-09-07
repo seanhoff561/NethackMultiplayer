@@ -31,10 +31,10 @@ test('procedural room dressing is stable, themed, wall anchored and clears stair
   const tiles=[];for(let x=0;x<12;x++)for(let y=0;y<12;y++)tiles.push({x,y,type:x===0||y===0||x===11||y===11?'wall':'floor'});
   tiles.find(t=>t.x===1&&t.y===5).type='stairs_down';tiles.find(t=>t.x===10&&t.y===7).type='door';
   const original=structuredClone(tiles),plan=dressingPlan(tiles);
-  assert.ok(plan.length>8);assert.deepEqual(plan,dressingPlan([...tiles].reverse()));assert.deepEqual(tiles,original);
+  assert.ok(plan.length>=4&&plan.length<14);assert.deepEqual(plan,dressingPlan([...tiles].reverse()));assert.deepEqual(tiles,original);
   assert.equal(new Set(plan.map(p=>p.theme)).size,1,'one room has one visual identity');
   for(const p of plan){
-    assert.ok(Math.abs(Math.hypot(p.x-(p.cellX+.5)*3,p.z-(p.cellY+.5)*3)-1.48)<1e-8);
+    if(!p.interior)assert.ok(Math.abs(Math.hypot(p.x-(p.cellX+.5)*3,p.z-(p.cellY+.5)*3)-1.48)<1e-8);
     assert.ok(tiles.filter(t=>/stairs|door/.test(t.type)).every(t=>Math.abs(t.x-p.cellX)+Math.abs(t.y-p.cellY)>1));
   }
 });

@@ -10,7 +10,7 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const until=async(fn,label)=>{const end=Date.now()+10000;while(!fn()){if(Date.now()>end)throw Error(label);await new Promise(r=>setTimeout(r,10));}};
 test('native spatial anchors spend no movement turns; physical stair endpoint changes the real dungeon floor',{timeout:25000},async()=>{
   await mkdir(path.join(root,'test-results'),{recursive:true});const cwd=await mkdtemp(path.join(root,'test-results/spatial-native-'));await cp(path.join(root,'engine/data'),cwd,{recursive:true});
-  const engine=new NativeSession({executable:path.join(root,'engine/bin/nethack-engine-polished.exe'),cwd,args:['-p','Wizard','-r','human','-g','male','-a','neutral','-u','StairQA']});
+  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v05.exe'),cwd,args:['-p','Wizard','-r','human','-g','male','-a','neutral','-u','StairQA']});
   const sim=new SpatialSimulation(),diagnostics=[];engine.on('diagnostic',m=>diagnostics.push(m));engine.on('snapshot',s=>sim.accept(s));engine.start();
   try {
     await until(()=>engine.ready&&engine.snapshot,'native startup');

@@ -138,7 +138,7 @@ export class GameUI {
         <div class="message-log" id="message-log" role="log" aria-live="polite" aria-relevant="additions"></div>
         <div class="hud-bottom">
           <div class="vital-bars"><div class="vital-row"><span class="vital-label">VITALITY</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">— / —</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">— / —</span></div></div>
-          <div class="hud-actions"><button data-action="fullscreen" id="fullscreen-toggle" title="Fullscreen (F10)" aria-label="Enter fullscreen">⛶</button><button data-command="i" title="Inventory (I)">${icon('bag')}<kbd>I</kbd></button><button data-action="commands" title="All commands (Tab)">${icon('scroll')}<kbd>TAB</kbd></button><button data-action="settings" title="Settings">${icon('gear')}</button></div>
+
         </div>
         <button class="mouse-capture" id="mouse-capture" type="button" hidden>Click to look around <span>TAB commands · ESC menu</span></button>
       </section>
@@ -169,6 +169,9 @@ export class GameUI {
       if (action === 'commands') this.callbacks.onCommand?.('#commands');
       if (action === 'fullscreen') this.callbacks.onFullscreen?.();
       if (action === 'settings') this.showSettings();
+      if(action==='new-run')this.showNewRun();
+      if(action==='confirm-new-run'){this.callbacks.onNewRun?.();this.openPanel('settings','Saving your expedition','<p class="settings-intro">Preparing character creation…</p>',{centered:true,noClose:true});}
+      if(action==='back-settings')this.showSettings();
       if (action === 'resume') this.closePanels();
       const section=e.target.closest('[data-settings-section]')?.dataset.settingsSection;if(section)this.showSettings(section);
       if (action === 'help') this.showHelp();
@@ -460,16 +463,16 @@ export class GameUI {
   showSettings(section='settings') {
     const playing=['playing','play','game'].includes(this.mode);
     const rows=[
-      ['W A S D','Walk'],['MOUSE','Look'],['SHIFT / CTRL','Run / crouch'],['LEFT CLICK / SPACE','Attack'],
+      ['W A S D','Walk'],['MOUSE','Look'],['SHIFT / CTRL','Run / crouch'],['LEFT CLICK','Attack'],
       ['E / G','Interact / pick up the object you face'],['I','Inventory — select an item, then an action'],
-      ['TAB','Search and select any NetHack command'],['RIGHT CLICK / Z','Choose and cast a spell'],['B','Choose a wand'],
+      ['TAB','Search and select any NetHack command'],['SPACE / Z','Choose and cast a spell'],['HOLD RIGHT CLICK','Defend with your shield or weapon'],['B','Choose a wand'],
       ['F / T','Fire ammunition / throw an item'],['Q / R','Drink a potion / read'],['X','Swap weapons'],
       ['K / P / V','Kick / pray / search'],['1 / 2 / 3','Wield / cast / zap'],['4 / 5 / 6','Drink / apply / eat'],
       ['ARROW KEYS','Walk forward/back and turn'],['F10','Toggle fullscreen'],['ESC','Open this menu; return or resume'],
       ['MENU LETTERS','Select the displayed choice; they never move your character'],
     ];
     const controls=`<div class="help-controls">${rows.map(([key,text])=>`<div><kbd>${key}</kbd><span>${text}</span></div>`).join('')}</div>`;
-    const settings=`<div class="setting-row"><div><strong>Fullscreen</strong><small>Use your entire display.</small></div><button class="text-button" data-action="fullscreen">Toggle · F10</button></div>${[
+    const settings=`<div class="setting-row"><div><strong>Fullscreen</strong><small>F10 exits fullscreen. Escape opens this menu.</small></div><button class="text-button" data-action="fullscreen">Toggle · F10</button></div>${[
       ['volume','Sound volume','Low dungeon ambience and grounded effects.',0,1,.05],
       ['sensitivity','Look sensitivity','How quickly the camera follows your mouse.',.1,2,.05],
       ['pulseTime','Dungeon tempo','Pace of hunger, recovery and creature attacks.',.3,2,.1],
@@ -477,13 +480,13 @@ export class GameUI {
     const guide=`<div class="field-guide">
       <article><h3>Entering commands</h3><p>Press <kbd>Tab</kbd>, type a command name such as <b>engrave</b>, <b>pray</b>, <b>wear</b> or <b>save</b>, then click the result or press <kbd>Enter</kbd>. The complete NetHack command list is searchable here.</p><p>When the game asks for an item or a choice, click it or press its displayed letter. Press <kbd>Escape</kbd> to cancel the choice and return to this menu.</p></article>
       <article><h3>Your first descent</h3><p>Find the Amulet of Yendor and carry it back to the surface. Use <kbd>WASD</kbd> to explore, aim with the mouse, and <kbd>E</kbd> to open doors or take nearby objects. Walk into the left side of a stairwell, turn on its landing, and follow the return flight.</p></article>
-      <article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd> or <kbd>Space</kbd>. <kbd>Z</kbd> selects spells; <kbd>B</kbd> selects wands. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
-      <article><h3>A living dungeon</h3><p>Menus never pause the world. Creatures keep moving; hunger and recovery continue. Retreat somewhere safer before reading or organizing equipment. Red creatures have taken damage; red screen edges mean you have been hurt.</p></article>
+      <article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd>. Hold <kbd>Right click</kbd> to defend: a weapon adds 1 armor point; a shield adds its native armor bonus again while raised. <kbd>Space</kbd> or <kbd>Z</kbd> selects spells; <kbd>B</kbd> selects wands. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
+      <article><h3>A living dungeon</h3><p>Menus never pause the world. Creatures keep moving; hunger and recovery continue. Retreat somewhere safer before reading or organizing equipment. Carrying too much slows walking and running; overloaded characters cannot move. Most foes can keep pace with a sprint. Red creatures have taken damage; red screen edges mean you have been hurt.</p></article>
       <article><h3>Keep your expedition</h3><p>Use <b>Save expedition</b> below, or <kbd>Tab</kbd> → Save, and confirm Yes. Continue restores the native save and your position. Closing the window alone does not save or stop the dungeon.</p></article>
     </div>`;
     const nav=`<nav class="expedition-tabs" aria-label="Expedition menu">${[['settings','Settings'],['controls','All controls'],['guide','Field guide']].map(([key,label])=>`<button data-settings-section="${key}" aria-current="${key===section?'page':'false'}">${label}</button>`).join('')}</nav>`;
     const intro=`<div class="command-discovery"><div><strong>Every command is within reach.</strong><p><kbd>Tab</kbd> → type its name → <kbd>Enter</kbd></p></div>${playing?'<button data-action="commands" class="text-button">Open commands →</button>':''}</div>`;
-    const footer=playing?'<div class="expedition-footer"><button data-command="S" class="text-button">Save expedition</button><button data-action="resume" class="primary-button">Return to dungeon <kbd>ESC</kbd></button></div>':'';
+    const footer=playing?'<div class="expedition-footer"><div><button data-command="S" class="text-button">Save expedition</button><button data-action="new-run" class="text-button">New run</button></div><button data-action="resume" class="primary-button">Return to dungeon <kbd>ESC</kbd></button></div>':'';
     this.openPanel('settings',playing?'Expedition':'Prepare your descent',nav+intro+(section==='controls'?controls:section==='guide'?guide:settings)+footer,{centered:true,section,overline:'SETTINGS · CONTROLS · GUIDE'});
     this.$('#panel-layer').querySelectorAll('[data-setting]').forEach(input=>input.addEventListener('input',()=>{
       const key=input.dataset.setting;this.settings[key]=Number(input.value);
@@ -494,6 +497,9 @@ export class GameUI {
     this.$('#settings-reset')?.addEventListener('click',()=>{this.settings={volume:.55,sensitivity:1,pulseTime:.8};this.callbacks.onSettings?.({...this.settings});this.showSettings();});
   }
 
+  showNewRun(){
+    this.openPanel('settings','Begin a new expedition?',`<div class="field-guide"><p>Your current expedition will be saved before character creation. Starting again with the same name archives that save.</p></div><div class="expedition-footer"><button class="text-button" data-action="back-settings">Back</button><button class="primary-button" data-action="confirm-new-run">Save and start a new run</button></div>`,{centered:true,section:'new-run'});
+  }
   showHelp(){this.showSettings('guide');}
 
   showMap() {
