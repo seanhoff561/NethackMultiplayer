@@ -8,7 +8,7 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const until=async(fn,label)=>{const end=Date.now()+7000;while(!fn()){if(Date.now()>end)throw Error(label);await new Promise(r=>setTimeout(r,10));}};
 test('native defend changes real AC, follows equipment and clears without stacking',{timeout:25000},async()=>{
   await mkdir(path.join(root,'test-results'),{recursive:true});const cwd=await mkdtemp(path.join(root,'test-results/guard-native-'));await cp(path.join(root,'engine/data'),cwd,{recursive:true});
-  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v05.exe'),cwd,args:['-p','Valkyrie','-r','human','-g','female','-a','lawful','-u','GuardQA']});engine.start();
+  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v06.exe'),cwd,args:['-p','Valkyrie','-r','human','-g','female','-a','lawful','-u','GuardQA']});engine.start();
   const act=async key=>{engine.act({key});await until(()=>engine.ready&&!engine.replay,'action '+key);};
   try{
     await until(()=>engine.ready&&engine.snapshot,'startup');const base=engine.snapshot.player.ac;
@@ -24,7 +24,7 @@ test('native defend changes real AC, follows equipment and clears without stacki
 
 test('wished weight in discovery mode affects native encumbrance and spatial speed',{timeout:25000},async()=>{
   const cwd=await mkdtemp(path.join(root,'test-results/burden-native-'));await cp(path.join(root,'engine/data'),cwd,{recursive:true});
-  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v05.exe'),cwd,args:['-D','-p','Wizard','-r','human','-g','male','-a','neutral','-u','BurdenQA']});
+  const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v06.exe'),cwd,args:['-D','-p','Wizard','-r','human','-g','male','-a','neutral','-u','BurdenQA']});
   engine.on('prompt',p=>{if(!engine.snapshot)queueMicrotask(()=>engine.answer({kind:'key',value:'y'}));});engine.start();
   try{
     await until(()=>engine.ready&&engine.snapshot,'startup');

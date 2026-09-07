@@ -1,3 +1,4 @@
+import {mapRecord,drawParchment} from './parchment.js';
 import {itemProfile,detailedItem} from './item-models.js';
 import {creatureProfile} from './creatures.js';
 import * as THREE from 'three';
@@ -277,6 +278,7 @@ export class DungeonRenderer {
   }
 
   _buildTerrain(tiles) {
+    this.highlightPickup(null);this.doorTargets=new Map();
     this.world.traverse(object => { if (object.isInstancedMesh) object.dispose(); if(object.userData.terrainGeometry)object.geometry.dispose(); });
     this.world.clear(); this.torches = []; this.features = [];
     this.collision=new CollisionWorld(tiles);
@@ -362,7 +364,7 @@ export class DungeonRenderer {
       this.mesh(group, 'box', this.wallMaterial, [side * 1.30, 3.17, 0], [0.52, 0.27, 0.76]);
     }
     this.mesh(group, 'box', this.wallMaterial, [0, 3.37, 0], [3, 0.52, 0.72]);
-    const door = new THREE.Group(); door.position.set(-1.1, 0, 0); door.rotation.y = open ? -1.32 : 0; group.add(door);
+    const door = new THREE.Group(); door.position.set(-1.1, 0, 0); door.rotation.y = open ? -1.32 : 0; group.add(door);if(!open)this.doorTargets.set(`${Math.floor(x/CELL)},${Math.floor(z/CELL)}`,door);
     this.mesh(door, 'box', this.woodMaterial, [1.1, 1.48, 0], [2.2, 2.96, 0.16]);
     const iron = this.material(0x424b47, 0.75, 0.5);
     for (const height of [0.37, 1.25, 2.56]) {
@@ -1030,6 +1032,27 @@ export class DungeonRenderer {
     for(let i=0;i<10;i++)this.mesh(parent,'sphere',gold,[Math.sin(i*Math.PI/5)*.32,Math.cos(i*Math.PI/5)*.38,.09],[.032,.032,.021]);
   }
 
+  holdMap(open,snapshot=this.snapshot,elapsed=0){
+    this.mapHeld=!!open;
+    if(!open)return;
+    if(!this.parchment){
+      const canvas=document.createElement('canvas');canvas.width=1600;canvas.height=700;
+      const texture=this.keep(new THREE.CanvasTexture(canvas));texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=8;
+      const geometry=this.keep(new THREE.PlaneGeometry(1.85,.81,36,18)),pos=geometry.attributes.position;
+      for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i);pos.setZ(i,.025*Math.sin(x*8)+.015*Math.cos(y*12)+.05*Math.pow(Math.abs(x)/.925,8));}
+      geometry.computeVertexNormals();
+      const material=this.keep(new THREE.MeshStandardMaterial({map:texture,roughness:1,metalness:0,side:THREE.DoubleSide}));
+      const mesh=new THREE.Mesh(geometry,material);mesh.name='held-parchment';this.viewScene.add(mesh);
+      this.parchment={canvas,texture,mesh};
+    }
+    this.mapRecord=mapRecord(snapshot,elapsed);drawParchment(this.parchment.canvas,this.mapRecord);this.parchment.texture.needsUpdate=true;
+  }
+  highlightPickup(id,door=null){
+    const key=id!==null?`object:${id}`:door?`door:${door.x},${door.y}`:null;if(this.highlightKey===key)return;
+    if(this.highlightGroup)this.highlightGroup.traverse(m=>{if(m.userData.highlightOriginal){m.material.dispose();m.material=m.userData.highlightOriginal;delete m.userData.highlightOriginal;}});
+    this.highlightKey=key;this.highlightGroup=door?this.doorTargets?.get(`${door.x},${door.y}`):this.pickups.get(key)?.group;
+    this.highlightGroup?.traverse(m=>{if(m.isMesh&&m.material.emissive){m.userData.highlightOriginal=m.material;m.material=m.material.clone();m.material.emissive.setHex(0x9daec8);m.material.emissiveIntensity=.1;}});
+  }
   _buildViewModel() {
     this.viewScene=new THREE.Scene();this.viewCamera=new THREE.PerspectiveCamera(64,1,.01,8);
     const environment=new RoomEnvironment(),pmrem=new THREE.PMREMGenerator(this.renderer);
@@ -1337,6 +1360,12 @@ export class DungeonRenderer {
     this.leftHand.position.set(this.guarding?-.15:-.49,this.guarding?-.17:(this.hasShield?-.59:-.7)+bob,-.95);
     this.leftHand.position.set(-.49+guard*.34,-.59+guard*.42+bob,-.95);this.leftHand.rotation.set(.1,.15-guard*.4,-.12+guard*.12);
     for(let i=this.effects.length-1;i>=0;i--){const e=this.effects[i];e.life-=dt;e.group.position.addScaledVector(e.direction,dt*16);if(e.life<=0){this.scene.remove(e.group);this.effects.splice(i,1);}}
+    this.mapBlend=THREE.MathUtils.lerp(this.mapBlend||0,this.mapHeld?1:0,1-Math.exp(-dt*10));
+    this.rightHand.visible=this.mapBlend<.5;this.leftHand.visible=this.hasShield&&this.mapBlend<.5;
+    if(this.parchment){const m=this.parchment.mesh,down=THREE.MathUtils.clamp(-p.pitch,0,1);m.visible=this.mapBlend>.01;
+      m.position.set(Math.sin(this.bobPhase*.5)*.008,-.83+down*.58-(1-this.mapBlend)*.8+bob*.5,-1.22);
+      m.rotation.set(-.8+down*.55,Math.sin(this.time*.7)*.008,Math.sin(this.time*.45)*.006);
+    }
     this.renderer.clear();this.renderer.render(this.scene,this.camera);
     if(this.snapshot?.levelId!=='title'){this.renderer.clearDepth();this.renderer.render(this.viewScene,this.viewCamera);}
   }

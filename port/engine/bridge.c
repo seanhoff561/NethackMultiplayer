@@ -158,7 +158,7 @@ static void snapshot(void) {
     CONDITION(burden==1,"Burdened"); CONDITION(burden==2,"Stressed"); CONDITION(burden==3,"Strained"); CONDITION(burden==4,"Overtaxed"); CONDITION(burden>=5,"Overloaded");
     CONDITION(Sick, "Sick"); CONDITION(u.utrap, "Trapped"); CONDITION(u.uswallow, "Swallowed");
     fputs("],\"weapon\":", stdout); json_string(uwep ? doname(uwep) : "bare hands");
-    printf(",\"guardBonus\":%d,\"encumbrance\":%d",descent_defense_bonus(),burden);
+    printf(",\"guardBonus\":%d,\"encumbrance\":%d,\"experience\":%ld,\"busy\":%s",descent_defense_bonus(),burden,u.uexp,(gm.multi<0 || go.occupation)?"true":"false");
     fputs(",\"shield\":", stdout); json_string(uarms ? doname(uarms) : "");
     printf(",\"immobile\":%s,\"speedScale\":%.2f},\"spatialSerial\":%lu,\"actionSerial\":%lu,\"tiles\":[", (burden>=5 || u.utrap || u.uswallow || gm.multi<0 || go.occupation) ? "true":"false", (Very_fast ? 1.5 : Fast ? 1.25 : 1.0)*burden_speed[min(5,burden)], spatial_serial, action_serial); first = 1;
     for (y = 0; y < ROWNO; y++) for (x = 1; x < COLNO; x++) {
@@ -325,7 +325,7 @@ static void metadata(void) {
 static void bridge_callback(const char *name, void *ret, const char *fmt, ...) {
     va_list ap; int w, i, how; const char *s; BridgeWindow *window;
     va_start(ap, fmt);
-    if (!strcmp(name, "shim_init_nhwindows")) { iflags.window_inited = TRUE; metadata(); }
+    if (!strcmp(name, "shim_init_nhwindows")) { iflags.window_inited = TRUE; iflags.force_invmenu = TRUE; metadata(); }
     else if (!strcmp(name, "shim_player_selection")) {
         if (flags.initrole < 0) flags.initrole = str2role("Valkyrie");
         if (flags.initrace < 0) flags.initrace = randrace(flags.initrole);
@@ -358,13 +358,22 @@ static void bridge_callback(const char *name, void *ret, const char *fmt, ...) {
     else if (!strcmp(name, "shim_raw_print") || !strcmp(name, "shim_raw_print_bold")) {
         s=va_arg(ap,const char *); add_message(s); fputs("{\"type\":\"message\",\"text\":",stdout); json_string(s); fputs("}\n",stdout); fflush(stdout);
     }
-    else if (!strcmp(name, "shim_nh_poskey")) { *(int *)ret=input_key("command", ""); }
+    else if (!strcmp(name, "shim_nh_poskey")) { iflags.force_invmenu=TRUE; *(int *)ret=input_key("command", ""); }
     else if (!strcmp(name, "shim_get_nh_event")) {
+        static int skipping = 0;
         if (svc.context.move) action_serial++;
         /* Occupations and helplessness bypass nh_poskey; pace those real turns. */
         if (go.occupation || gm.multi != 0) {
-            snapshot(); Sleep((unsigned long)turn_ms);
-        }
+            int busy = gm.multi < 0 || go.occupation;
+            snapshot(); Sleep((unsigned long)(busy ? (skipping ? 45 : 350) : turn_ms));
+            if(busy) {
+                /* Synchronize continuous creatures before the next native turn.
+                   This internal request never opens a player-facing prompt. */
+                fputs("{\"type\":\"request\",\"kind\":\"advance\"}\n",stdout);fflush(stdout);
+                (void)read_wire();
+            }
+            skipping = busy;
+        } else skipping=0;
     }
     else if (!strcmp(name, "shim_nhgetch")) { *(int *)ret=input_key("key", message_count ? message_log[message_count-1] : ""); }
     else if (!strcmp(name, "shim_yn_function")) {

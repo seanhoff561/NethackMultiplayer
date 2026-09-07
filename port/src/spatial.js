@@ -144,3 +144,16 @@ export function mergeSurfaces(tiles,predicate) {
   }
   return out;
 }
+
+// Vertical motion is separate from floor support; walls still collide during a hop.
+export function startJump(body){
+  if(!body || body.jumpOffset>0 || body.jumpVelocity>0 || (body.speedScale??1)<=.25)return false;
+  body.jumpVelocity=3.8;body.jumpOffset=0;return true;
+}
+export function advanceJump(body,dt){
+  if(!body)return;
+  const h=body.jumpOffset||0,v=body.jumpVelocity||0;
+  if(h<=0&&v<=0){body.jumpOffset=0;body.jumpVelocity=0;return;}
+  body.jumpOffset=Math.max(0,h+v*dt-6*dt*dt);body.jumpVelocity=v-12*dt;
+  if(body.jumpOffset===0&&body.jumpVelocity<0)body.jumpVelocity=0;
+}

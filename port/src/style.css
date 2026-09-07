@@ -76,3 +76,16 @@ body.floor-transition::after{opacity:1}
 
 /* A single blue-violet surface system for every native and port panel. */
 #ui .game-panel{background:linear-gradient(145deg,#191c29f5,#10121cf7);border-color:#62657866;color:#c9cbdc}#ui .panel-layer{background:#0809139c;backdrop-filter:blur(5px)}#ui .panel-header,#ui .panel-live,#ui .panel-footer{border-color:#62657844}#ui .panel-header h2{color:#d5d5e2}#ui .menu-item:hover,#ui .command-item:hover,#ui .inventory-item.selected{background:#41405c66}#ui .setting-row{border-color:#62657844}.expedition-footer>div{display:flex;gap:15px}
+
+/* Compact status; the chronicle owns notifications. */
+#ui .player-status{position:absolute;left:25px;top:24px;width:300px;max-width:calc(100vw - 40px);padding:13px 15px;background:linear-gradient(110deg,#111622bd,#11162200);border-left:2px solid #8587aa55;text-shadow:0 1px 3px #000}
+#ui .status-heading{display:flex;justify-content:space-between;gap:12px;margin-bottom:11px;font:12px Georgia;color:#c6c6d8}#ui .status-heading b{font-weight:400}#ui #level-xp{font:10px system-ui;color:#a0abc1}
+#ui .player-status .vital-bars{width:100%;display:grid;gap:7px}#ui .player-status .vital-row{display:grid;grid-template-columns:43px 1fr 52px;gap:8px;align-items:center}#ui .player-status .bar{height:5px;width:100%}#ui .player-status .vital-label{font:8px system-ui;letter-spacing:.08em}#ui .player-status .vital-value{font:10px system-ui;text-align:right}
+#ui .status-details{display:flex;gap:12px;margin-top:10px;font:10px system-ui;color:#b8b5c3}#ui .status-details b{font-weight:400;color:#c9b27e}#ui #hud-conditions{font:10px system-ui;color:#d3a890;margin-top:5px}
+#ui .aiming-layer{pointer-events:none;background:transparent;backdrop-filter:none;display:flex;justify-content:flex-end;align-items:center;padding:25px}
+#ui .aiming-layer .game-panel{pointer-events:none;width:min(430px,40vw);max-height:72vh;background:linear-gradient(120deg,#151b2b92,#151a2973);box-shadow:none;backdrop-filter:none;border-color:#7883a144}
+#ui .aiming-layer .panel-live,#ui .aiming-layer .close-button{display:none}#ui .aiming-layer .panel-header{padding:16px 19px}#ui .aiming-layer h2{font-size:20px}#ui .aiming-layer .panel-content{padding:0 18px 14px}#ui .aiming-layer .menu-item{padding:9px 3px;font-size:12px;background:transparent}#ui .aiming-layer .panel-footer{font-size:10px}
+#ui .time-skip{position:fixed;inset:0;z-index:90;pointer-events:none;background:#000;opacity:0;transition:opacity .28s ease}#ui .time-skip.active{opacity:1}#ui.time-passing .game-hud{opacity:0;transition:opacity .22s}
+@media(max-width:700px){#ui .player-status{left:14px;top:14px;width:250px;padding:10px}#ui .compass{display:none}#ui .aiming-layer{padding:12px}#ui .aiming-layer .game-panel{width:48vw;max-height:80vh}}
+
+#ui .player-status .vital-label{display:block;width:auto;grid-column:1}#ui .player-status .bar{grid-column:2}#ui .player-status .vital-value{grid-column:3}

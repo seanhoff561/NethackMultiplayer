@@ -50,10 +50,12 @@ export class NativeSession extends EventEmitter {
     if(event.type==='snapshot') {
       this.snapshot=event;
       // Replay only traverses prompts; avoid flooding the log with repeated questions.
-      if(!this.replay && !this.detaching)this.emit('snapshot',event);
+      if((!this.replay && !this.detaching)||event.player?.busy||this.wasBusy)this.emit('snapshot',event);
+      this.wasBusy=!!event.player?.busy;
       return;
     }
     if(event.type!=='request') {this.emit('event',event);return;}
+    if(event.kind==='advance'){this.emit('advance');this.write({kind:'key',value:32});return;}
     this.request=event; this.ready=event.kind==='command';
     if(this.detaching) {
       if(this.ready) {this.detaching=false;this.cancelCount=0;this.flushAnswer();this.emit('ready');return;}
@@ -105,7 +107,8 @@ export class NativeSession extends EventEmitter {
     this.transaction=action.idle?null:{steps:[...steps],aim:action.aim};
     this.replay=steps.slice(1);this.replayIndex=1;this.ready=false;this.write(initial);return true;
   }
-  answer(input) {
+  answer(input,aim) {
+    if(aim){if(this.virtualPrompt)this.virtualPrompt.transaction.aim=aim;if(this.transaction)this.transaction.aim=aim;}
     if(this.virtualPrompt) {
       if(!this.ready){this.pendingAnswer=input;return true;}
       const {request,transaction}=this.virtualPrompt;

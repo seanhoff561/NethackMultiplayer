@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {NativeSession} from '../lib/native-session.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const exe=process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v05.exe');
+const exe=process.env.NETHACK_ENGINE||path.join(root,'engine/bin/nethack-engine-polished-v06.exe');
 const until=async(predicate,label,timeout=10000)=>{const end=Date.now()+timeout;while(!predicate()){if(Date.now()>end)throw new Error(`Timed out: ${label}`);await new Promise(r=>setTimeout(r,10));}};
 
 test('actual NetHack character, live menu turns, equipment, and save/restore',{skip:!existsSync(exe),timeout:30000},async()=>{

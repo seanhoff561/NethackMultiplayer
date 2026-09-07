@@ -16,15 +16,15 @@ try{
   await page.goto(`http://127.0.0.1:${port}`);await page.locator('#enter-dungeon:not([disabled])').waitFor();
   await page.locator('.title-links [data-action=fullscreen]').click();await page.waitForFunction(()=>!!document.fullscreenElement);
   await page.locator('#character-name').fill('CombatQA');await page.locator('#character-role').selectOption('Valkyrie');await page.locator('#enter-dungeon').click();
-  await page.waitForFunction(()=>window.descent?.state.playing&&window.descent.state.motion);await page.locator('#mouse-capture').click();
+  await page.waitForFunction(()=>window.descent?.state.playing&&window.descent.state.motion);await page.locator('#game').click();
   await page.keyboard.press('Escape');await page.locator('.settings-panel').waitFor();
   assert.equal(await page.evaluate(()=>!!document.fullscreenElement),true,'Escape opens menu without leaving fullscreen');
   await page.screenshot({path:'test-results/combat-settings.png'});await page.locator('[data-action=resume]').click();
   assert.equal(await page.locator('.hud-actions,#fullscreen-toggle').count(),0);
-  await page.keyboard.press('Space');await page.waitForFunction(()=>window.__sent.some(e=>e.type==='action'&&e.key==='Z'));
+  await page.keyboard.press('f');await page.waitForFunction(()=>window.__sent.some(e=>e.type==='action'&&e.key==='Z'));
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='action').at(-1).key),'Z');
   assert.equal(await page.evaluate(()=>window.__sent.some(e=>e.melee)),false);
-  await page.keyboard.press('Escape');await page.locator('[data-action=resume]').click();
+  if(await page.locator('.game-panel').count())await page.keyboard.press('Escape');
   const ac=await page.evaluate(()=>window.descent.state.player.ac);
   await page.mouse.down({button:'right'});await page.waitForFunction(()=>window.descent.state.player.guardBonus===4);
   assert.equal(await page.evaluate(()=>window.descent.state.player.ac),ac-4);assert.equal(await page.locator('.game-panel').count(),0);
@@ -37,9 +37,9 @@ try{
   await page.locator('#character-role').selectOption('Wizard');await page.locator('#enter-dungeon').click();
   await page.waitForFunction(()=>window.descent.state.playing&&window.descent.state.player.role==='Wizard');
   assert.ok((await readdir(path.join(runtime,'archive'))).length===1);
-  await page.keyboard.press('Space');await page.locator('.menu-panel,.prompt-panel').waitFor();
+  await page.keyboard.press('f');await page.locator('.menu-panel,.prompt-panel').waitFor();
   await page.keyboard.press('F10');await page.waitForFunction(()=>!document.fullscreenElement);
   assert.deepEqual(errors,[]);
-  const results=['Escape retains fullscreen; F10 exits','Space casts, never melees','Right mouse adds native shield AC; opening a menu releases guard','Corner icons removed','New run saves and archives the old same-name expedition'];
+  const results=['Escape retains fullscreen; F10 exits','F casts, never melees','Right mouse adds native shield AC; opening a menu releases guard','Corner icons removed','New run saves and archives the old same-name expedition'];
   await writeFile('test-results/combat-browser-results.json',JSON.stringify({results,errors},null,2));console.log(JSON.stringify({results,errors},null,2));
 }catch(e){console.error(output);throw e;}finally{await browser?.close();server.kill();}

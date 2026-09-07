@@ -22,7 +22,7 @@ try{
   await page.waitForTimeout(500);
   console.log('Initial',JSON.stringify(await page.evaluate(()=>window.descent.state)));
   await page.screenshot({path:'test-results/spatial-game.png'});
-  await page.locator('#mouse-capture').click();
+  await page.locator('#game').click();
   const before=await page.evaluate(()=>window.descent.state.pose);
   await page.keyboard.down('w');await page.waitForTimeout(130);await page.keyboard.up('w');
   const after=await page.evaluate(()=>window.descent.state.pose);
@@ -35,7 +35,7 @@ try{
   const actorsAfter=await page.evaluate(()=>window.descent.state.motion.actors);
   console.log('Fractional movement metres',travelled,'actor movement',actors.map(a=>({id:a.id,delta:Math.hypot((actorsAfter.find(b=>b.id===a.id)?.x??a.x)-a.x,(actorsAfter.find(b=>b.id===a.id)?.z??a.z)-a.z)})));
   await page.screenshot({path:'test-results/spatial-inventory.png'});
-  await page.keyboard.press('Escape');await page.locator('[data-action=resume]').click();
+  await page.keyboard.press('Escape');assert.equal(await page.locator('.game-panel').count(),0);
   const savedPose=await page.evaluate(()=>window.descent.state.motion.player);
   await page.keyboard.press('Tab');await page.locator('#command-search').fill('save');await page.locator('[data-palette-key="S"]').click();
   await page.locator('[data-choice="y"]').waitFor({timeout:8000});await page.locator('[data-choice="y"]').click();

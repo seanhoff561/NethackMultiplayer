@@ -130,20 +130,18 @@ export class GameUI {
         <footer class="title-bottom"><div class="title-controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>SHIFT</kbd> Run</span><span><kbd>CTRL</kbd> Crouch</span><span><kbd>TAB</kbd> Commands</span><span><i class="mouse-icon"></i> Look & attack</span></div><div class="title-links"><button type="button" data-action="fullscreen">Fullscreen</button><span>·</span><button type="button" data-action="help">How to play</button><span>·</span><button type="button" data-action="settings">Settings</button></div></footer>
       </section>
       <section class="game-hud" aria-label="Game status" hidden>
-        <div class="hud-top-left"><div class="location-overline">DUNGEONS OF DOOM</div><div class="location-name" id="location-name">The dungeon</div><div class="location-detail" id="location-detail">Depth 1</div></div>
+        <div class="hud-top-left player-status" aria-label="Character status">
+          <div class="status-heading"><b id="player-name">Adventurer</b><span id="level-xp">Lv 1 · 0 XP</span></div>
+          <div class="vital-bars"><div class="vital-row"><span class="vital-label">HEALTH</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">—</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">—</span></div></div>
+          <div class="status-details"><span id="hunger-value">Ready</span><span id="weight-value">Unburdened</span><span><b id="gold-value">0</b> gold</span></div><div id="hud-conditions"></div>
+        </div>
         <div class="compass" aria-label="Facing direction"><span class="compass-side" id="compass-left">W</span><i></i><span class="compass-center" id="compass-heading">N</span><i></i><span class="compass-side" id="compass-right">E</span><b>▼</b></div>
         <div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
-        <div id="interaction-hint" class="interaction-hint" hidden></div>
-        <div class="hud-conditions" id="hud-conditions"></div>
         <div class="message-log" id="message-log" role="log" aria-live="polite" aria-relevant="additions"></div>
-        <div class="hud-bottom">
-          <div class="vital-bars"><div class="vital-row"><span class="vital-label">VITALITY</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">— / —</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">— / —</span></div></div>
-
-        </div>
         <button class="mouse-capture" id="mouse-capture" type="button" hidden>Click to look around <span>TAB commands · ESC menu</span></button>
       </section>
       <div class="panel-layer" id="panel-layer" hidden></div>
-      <div class="toast" id="toast" role="status" hidden></div>
+      <div class="time-skip" id="time-skip" aria-hidden="true"></div>
     `;
     this.$ = selector => this.root.querySelector(selector);
 
@@ -246,9 +244,11 @@ export class GameUI {
     set('#location-detail', `Depth ${p.depth ?? snapshot.depth ?? 1}${snapshot.elapsed !== undefined ? ` · ${Math.floor(snapshot.elapsed/60)}:${String(Math.floor(snapshot.elapsed%60)).padStart(2,'0')} survived` : ''}`);
     set('#armor-value', p.ac);
     set('#gold-value', Number(p.gold || 0).toLocaleString());
-    const hunger = p.conditions?.length ? p.conditions.slice(0,2).join(' · ') : p.hunger === undefined || p.hunger === '' ? 'Ready' : p.hunger;
+    const hunger = typeof p.hunger==='string'&&p.hunger?p.hunger:'Ready';
+    set('#level-xp',`Lv ${p.level||1} · ${p.experience||0} XP`);
+    set('#weight-value',['Unburdened','Burdened','Stressed','Strained','Overtaxed','Overloaded'][p.encumbrance||0]);
     set('#hunger-value', capital(hunger));
-    set('#hud-conditions',p.conditions?.join(' · ')||'');
+    set('#hud-conditions',p.conditions?.filter(c=>! /Hungry|Weak|Faint|Starv|Satiated|Burdened|Stressed|Strained|Overtaxed|Overloaded/.test(c)).join(' · ')||'');
     this.$('#hunger-value')?.classList.toggle('warning', /hungry|weak|faint|starv|burden|stress/i.test(String(hunger)));
     for (const [field, maxField, prefix] of [['hp', 'maxHp', 'hp'], ['power', 'maxPower', 'power']]) {
       const current = Number(p[field] || 0), max = Number(p[maxField] || 0);
@@ -280,13 +280,9 @@ export class GameUI {
     this.$('#compass-right').textContent = directions[(index + 2) % 8];
   }
 
-  setInteraction(text, key = 'E') {
-    const hint = this.$('#interaction-hint');
-    hint.hidden = !text;
-    hint.innerHTML = text ? `<kbd>${esc(key)}</kbd><span>${esc(text)}</span>` : '';
-  }
-
-  setPointerLocked(locked) { this.$('#mouse-capture').hidden = locked || Boolean(this.panel) || !['playing', 'game', 'play'].includes(this.mode); }
+  setInteraction() {}
+  setBusy(active){this.$('#time-skip').classList.toggle('active',!!active);this.root.classList.toggle('time-passing',!!active);}
+  setPointerLocked(){this.$('#mouse-capture').hidden=true;}
 
   message(text) {
     if (!text) return;
@@ -295,9 +291,9 @@ export class GameUI {
     this.renderMessages();
   }
 
-  toast(text){const el=this.$('#toast');el.textContent=text;el.hidden=false;clearTimeout(this.toastTimer);this.toastTimer=setTimeout(()=>el.hidden=true,2200);}
+  toast(text){this.message(text);}
   damage(){const el=this.$('#damage-flash');el.getAnimations().forEach(a=>a.cancel());el.animate([{opacity:.8},{opacity:.25,offset:.3},{opacity:0}],{duration:650,easing:'ease-out'});}
-  confirmHit(){const el=this.$('#hit-confirm');el.getAnimations().forEach(a=>a.cancel());el.animate([{opacity:1,transform:'translate(-50%,-50%) scale(1.2)'},{opacity:0,transform:'translate(-50%,-50%) scale(.8)'}],{duration:280});}
+  confirmHit(){}
   setFullscreen(active){this.$('#fullscreen-toggle')?.setAttribute('aria-label',active?'Exit fullscreen':'Enter fullscreen');}
   renderMessages() {
     const log=this.$('#message-log');log.classList.remove('quiet');clearTimeout(this.messageTimer);this.messageTimer=setTimeout(()=>log.classList.add('quiet'),6500);
@@ -347,22 +343,22 @@ export class GameUI {
   }
 
   openPanel(type, title, body, options = {}) {
-    this.callbacks.onPanel?.();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.callbacks.onPanel?.(options);
+    if (!options.aiming && document.pointerLockElement) document.exitPointerLock();
     this.panel = { type, ...options };
     const layer = this.$('#panel-layer');
     layer.hidden = false;
-    layer.className = `panel-layer ${options.centered ? 'centered' : ''} ${type}-layer`;
+    layer.className = `panel-layer ${options.centered ? 'centered' : ''} ${type}-layer ${options.aiming?'aiming-layer':''}`;
     layer.innerHTML = `<section class="game-panel ${type}-panel" role="dialog" aria-modal="false" aria-labelledby="panel-title"><header class="panel-header"><div><div class="panel-overline">${options.overline || 'ADVENTURER’S COMPANION'}</div><h2 id="panel-title">${esc(title)}</h2></div>${options.noClose ? '' : `<button class="close-button" data-action="close" title="Close (Esc)" aria-label="Close">${icon('cross')}</button>`}</header>${['playing', 'play', 'game'].includes(this.mode) ? '<div class="panel-live"><span></span> The world remains live. Stay aware of your surroundings.</div>' : ''}<div class="panel-content">${body}</div></section>`;
     this.$('#mouse-capture').hidden = true;
     return layer;
   }
 
-  closePanels(notify = true) {
+  closePanels(notify = true, escape = false) {
     this.panel = null;
     this.$('#panel-layer').hidden = true;
     this.$('#panel-layer').innerHTML = '';
-    if (notify) this.callbacks.onClose?.();
+    if (notify) this.callbacks.onClose?.({escape});
   }
 
   cancelPanel() {
@@ -381,8 +377,8 @@ export class GameUI {
       const selectable = !menu.readOnly && item.selectable !== false && (item.key !== undefined && item.key !== '' && item.key !== null || item.id !== undefined && item.id !== null && item.id !== 0);
       const id = String(item.id ?? item.key);
       return selectable ? `<button class="menu-item ${selected.has(id) ? 'selected' : ''}" data-menu-index="${i}"><kbd>${esc(item.key || '·')}</kbd><span>${esc(item.text || item.name || '')}</span>${menu.multiple ? '<b class="selection-mark">✓</b>' : icon('chevron')}</button>` : `<div class="menu-section">${esc(item.text || item.name || '')}</div>`;
-    }).join('')}</div><div class="panel-footer"><span>${menu.multiple ? 'Choose any number of items.' : 'Select an item or type its letter.'}</span>${menu.multiple ? '<button class="primary-button compact" id="menu-confirm">Confirm selection <kbd>↵</kbd></button>' : '<kbd>ESC to close</kbd>'}</div>`;
-    this.openPanel('menu', menu.title || 'Choose an action', body, { menu, selected });
+    }).join('')}</div><div class="panel-footer"><span>${menu.aiming?'Aim with the mouse · press a letter · wheel to scroll':menu.multiple ? 'Choose any number of items.' : 'Select an item or type its letter.'}</span>${menu.multiple ? '<button class="primary-button compact" id="menu-confirm">Confirm selection <kbd>↵</kbd></button>' : '<kbd>ESC to close</kbd>'}</div>`;
+    this.openPanel('menu', menu.title || 'Choose an action', body, { menu, selected, aiming:!!menu.aiming });
     this.$('#panel-layer').querySelectorAll('[data-menu-index]').forEach(button => button.addEventListener('click', () => this.selectMenuItem(Number(button.dataset.menuIndex))));
     this.$('#menu-confirm')?.addEventListener('click', () => this.submitMenu());
   }
@@ -416,7 +412,7 @@ export class GameUI {
     const isText = prompt.type === 'text';
     const choices = Array.isArray(prompt.choices) ? prompt.choices : String(prompt.choices || 'yn').split('');
     const body = isText ? `<form id="prompt-form"><label class="prompt-label" for="prompt-input">${esc(prompt.text)}</label><input id="prompt-input" maxlength="255" autocomplete="off" value="${esc(prompt.default || '')}"><div class="panel-footer"><span><kbd>ESC</kbd> Cancel</span><button type="submit" class="primary-button compact">Continue ${icon('arrow')}</button></div></form>` : `<p class="prompt-text">${esc(prompt.text)}</p><div class="prompt-choices">${choices.filter(c => c !== ' ').map(choice => { const key = typeof choice === 'string' ? choice : choice.key; const name = typeof choice === 'object' ? choice.text || choice.label : ({ y: 'Yes', n: 'No', q: 'Cancel', a: 'All' }[choice] || choice); return `<button class="choice-button ${key === prompt.default ? 'default' : ''}" data-choice="${esc(key)}"><span>${esc(name)}</span><kbd>${esc(key)}</kbd></button>`; }).join('')}</div>`;
-    this.openPanel('prompt', isText ? 'A word in the dark' : 'Your decision', body, { prompt, centered: true, overline: 'THE DUNGEON ASKS' });
+    this.openPanel('prompt', isText ? 'A word in the dark' : 'Your decision', body, { prompt, centered: isText, aiming:!!prompt.aiming, overline: 'THE DUNGEON ASKS' });
     this.$('#prompt-form')?.addEventListener('submit', e => { e.preventDefault(); const value = this.$('#prompt-input').value; this.closePanels(false); this.callbacks.onText?.(value); });
     this.$('#panel-layer').querySelectorAll('[data-choice]').forEach(button => button.addEventListener('click', () => { const key = button.dataset.choice; this.closePanels(false); this.callbacks.onKey?.(key); }));
     if (isText) requestAnimationFrame(() => { this.$('#prompt-input')?.focus(); this.$('#prompt-input')?.select(); });
@@ -465,10 +461,10 @@ export class GameUI {
     const rows=[
       ['W A S D','Walk'],['MOUSE','Look'],['SHIFT / CTRL','Run / crouch'],['LEFT CLICK','Attack'],
       ['E / G','Interact / pick up the object you face'],['I','Inventory — select an item, then an action'],
-      ['TAB','Search and select any NetHack command'],['SPACE / Z','Choose and cast a spell'],['HOLD RIGHT CLICK','Defend with your shield or weapon'],['B','Choose a wand'],
-      ['F / T','Fire ammunition / throw an item'],['Q / R','Drink a potion / read'],['X','Swap weapons'],
+      ['TAB','Search and select any NetHack command'],['SPACE','Jump'],['M','Hold map · look down to read'],['F / Z','Choose a spell by letter while aiming'],['HOLD RIGHT CLICK','Defend with your shield or weapon'],['B','Choose a wand'],
+      ['C / T','Fire ammunition / throw an item'],['Q / R','Drink a potion / read'],['X','Swap weapons'],
       ['K / P / V','Kick / pray / search'],['1 / 2 / 3','Wield / cast / zap'],['4 / 5 / 6','Drink / apply / eat'],
-      ['ARROW KEYS','Walk forward/back and turn'],['F10','Toggle fullscreen'],['ESC','Open this menu; return or resume'],
+      ['ARROW KEYS','Walk forward/back and turn'],['F10','Toggle fullscreen'],['ESC','Close the current menu; otherwise open settings'],
       ['MENU LETTERS','Select the displayed choice; they never move your character'],
     ];
     const controls=`<div class="help-controls">${rows.map(([key,text])=>`<div><kbd>${key}</kbd><span>${text}</span></div>`).join('')}</div>`;
@@ -480,7 +476,7 @@ export class GameUI {
     const guide=`<div class="field-guide">
       <article><h3>Entering commands</h3><p>Press <kbd>Tab</kbd>, type a command name such as <b>engrave</b>, <b>pray</b>, <b>wear</b> or <b>save</b>, then click the result or press <kbd>Enter</kbd>. The complete NetHack command list is searchable here.</p><p>When the game asks for an item or a choice, click it or press its displayed letter. Press <kbd>Escape</kbd> to cancel the choice and return to this menu.</p></article>
       <article><h3>Your first descent</h3><p>Find the Amulet of Yendor and carry it back to the surface. Use <kbd>WASD</kbd> to explore, aim with the mouse, and <kbd>E</kbd> to open doors or take nearby objects. Walk into the left side of a stairwell, turn on its landing, and follow the return flight.</p></article>
-      <article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd>. Hold <kbd>Right click</kbd> to defend: a weapon adds 1 armor point; a shield adds its native armor bonus again while raised. <kbd>Space</kbd> or <kbd>Z</kbd> selects spells; <kbd>B</kbd> selects wands. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
+      <article><h3>Travel and time</h3><p>Space jumps. M raises a parchment map; look down to read it and press M again to put it away. The sketch records explored symbols, dungeon depth and the time it was opened. Eating, dressing, sleep and paralysis fade to black while their native turns pass. Enemies and hunger still advance.</p></article><article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd>. Hold <kbd>Right click</kbd> to defend: a weapon adds 1 armor point; a shield adds its native armor bonus again while raised. <kbd>F</kbd> or <kbd>Z</kbd> selects spells; <kbd>B</kbd> selects wands. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
       <article><h3>A living dungeon</h3><p>Menus never pause the world. Creatures keep moving; hunger and recovery continue. Retreat somewhere safer before reading or organizing equipment. Carrying too much slows walking and running; overloaded characters cannot move. Most foes can keep pace with a sprint. Red creatures have taken damage; red screen edges mean you have been hurt.</p></article>
       <article><h3>Keep your expedition</h3><p>Use <b>Save expedition</b> below, or <kbd>Tab</kbd> → Save, and confirm Yes. Continue restores the native save and your position. Closing the window alone does not save or stop the dungeon.</p></article>
     </div>`;
@@ -516,7 +512,8 @@ export class GameUI {
   handleKey(e) {
     const panel = this.panel;
     if (!panel) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if(panel.type!=='death'){if(['playing','play','game'].includes(this.mode))this.callbacks.onEscape?.();else this.cancelPanel();} return; }
+    if (panel.aiming)e.preventDefault();
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if(panel.type!=='death')this.closePanels(true,true); return; }
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
       // Preserve input editing while preventing global movement/command handlers.
       if (e.key !== 'Enter') e.stopPropagation();

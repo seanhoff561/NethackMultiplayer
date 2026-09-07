@@ -31,6 +31,6 @@ cl %BFLAGS% /Fo..\port\engine\build\zap.o zap.c
 if errorlevel 1 exit /b 1
 cl %BFLAGS% /Fo..\port\engine\build\do_wear.o do_wear.c
 if errorlevel 1 exit /b 1
-if not defined NETHACK_BUILD_OUTPUT set "NETHACK_BUILD_OUTPUT=..\port\engine\bin\nethack-engine-polished-v05.exe"
+if not defined NETHACK_BUILD_OUTPUT set "NETHACK_BUILD_OUTPUT=..\port\engine\bin\nethack-engine-polished-v06.exe"
 link /NOLOGO /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /STACK:8388608 /OUT:"%NETHACK_BUILD_OUTPUT%" @..\port\engine\engine.lnk ..\lib\lua5.4.8-x64-static.lib objtty\x64\hacklib-x64-static.lib kernel32.lib advapi32.lib gdi32.lib ole32.lib Shell32.lib UserEnv.lib dbghelp.lib Rpcrt4.lib user32.lib winmm.lib bcrypt.lib
 

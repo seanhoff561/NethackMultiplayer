@@ -4,9 +4,9 @@ import { DungeonAudio } from './audio.js';
 import { GameUI } from './ui.js';
 import {targetLoot} from './loot.js';
 import {GameInput,COMMAND_KEYS} from './input.js';
-let input,actionSequence=0,suppressUnlockMenu=false,defending=false;
+let input,actionSequence=0,suppressUnlockMenu=false,defending=false,resumeOnEscapeUp=false;
 const pendingActions=new Map();
-import {CollisionWorld,integratePlayer,CELL} from './spatial.js';
+import {CollisionWorld,integratePlayer,startJump,advanceJump,CELL} from './spatial.js';
 let collision=new CollisionWorld(),body=null,motion=null,collisionSignature='';
 
 const canvas=document.querySelector('#game');
@@ -32,8 +32,8 @@ const ui=new GameUI({
     answer({kind:'menu',value:selection.selected||[]});
   },
   onSettings:value=>{Object.assign(settings,value);localStorage.setItem('descent.settings',JSON.stringify(settings));audio.setVolume?.(settings.volume);send({type:'settings',...settings});},
-  onClose:()=>{pendingPrompt=null;send({type:'cancel'});input?.clear();capture();},
-  onPanel:()=>unlock(),
+  onClose:options=>{pendingPrompt=null;send({type:'cancel'});input?.clear();if(options?.escape)resumeOnEscapeUp=true;else capture();},
+  onPanel:options=>{renderer.holdMap(false);if(!options?.aiming)unlock();else{setDefending(false);input?.clear();send({type:'release'});}},
   onFullscreen:()=>toggleFullscreen(),
   onEscape:()=>openGameMenu(),
   onNewRun:()=>{unlock();send({type:"new-run"});},
@@ -43,13 +43,22 @@ audio.setVolume?.(settings.volume);
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
 function setDefending(value){defending=!!value;renderer.guard(defending);send({type:"defend",active:defending});}
 function unlock(){setDefending(false);if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
-function capture(){if(playing&&!ui.hasPanel){canvas.focus({preventScroll:true});canvas.requestPointerLock?.().catch?.(()=>ui.setPointerLocked(false));}}
+let captureRetry=0;
+function capture(retry=false){
+  if(!playing||(ui.hasPanel&&!ui.panel?.aiming))return;
+  clearTimeout(captureRetry);canvas.focus({preventScroll:true});
+  canvas.requestPointerLock?.().catch?.(()=>{
+    ui.setPointerLocked(false);
+    // Windowed Chrome briefly rejects capture immediately after native Escape.
+    // Retry only the player's resume/click request, while still in the game.
+    if(retry!==true)captureRetry=setTimeout(()=>{if(document.hasFocus()&&!document.pointerLockElement&&playing&&!ui.hasPanel)capture(true);},1500);
+    else ui.message('Click the dungeon view to resume mouse look.');
+  });
+}
 function openGameMenu(){
   if(!playing)return;
-  if(ui.panel?.type==='settings'){
-    if(ui.panel.section!=='settings')ui.showSettings();else ui.closePanels();
-    return;
-  }
+  if(renderer.mapHeld){renderer.holdMap(false);return;}
+  if(ui.panel){ui.closePanels();return;}
   pendingPrompt=null;send({type:'cancel'});ui.showSettings();
 }
 async function toggleFullscreen(){
@@ -58,12 +67,13 @@ async function toggleFullscreen(){
 }
 function action(message){const id=`${clientId}:${++actionSequence}`;pendingActions.set(id,message);send({type:'action',id,...message});}
 const clientId=Math.random().toString(36).slice(2);
-function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else send({type:'answer',input});pendingPrompt=null;ui.closePanels(false);capture();}
+function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else send({type:'answer',input,aim:aim()});pendingPrompt=null;ui.closePanels(false);capture();}
 function direction(dx,dy){return ({'-1,-1':'y','0,-1':'k','1,-1':'u','-1,0':'h','1,0':'l','-1,1':'b','0,1':'j','1,1':'n'})[`${Math.sign(dx)},${Math.sign(dy)}`]||'.';}
 function facing(){const dirs=[[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];return dirs[((Math.round(yaw/(Math.PI/4))%8)+8)%8];}
 function aim(){return direction(...facing());}
 function command(key,itemKey,targetCell,itemId) {
-  if(!key||!playing)return;
+  if(!key||!playing||world?.player.busy)return;
+  renderer.holdMap(false);
   if(key===','){const item=targetLoot(world?.floorObjects,body,yaw,collision);if(item){ui.closePanels(false);action({key:'.',pickup:item.id});capture();return;}}
   if(key==='i'||key==='#inventory'){unlock();ui.showInventory(world?.inventory||[]);return;}
   if(key==='#commands'||key==='#'){unlock();ui.showCommands(commands);return;}
@@ -72,7 +82,7 @@ function command(key,itemKey,targetCell,itemId) {
 }
 function nearbyDoor(){
   if(!body)return null;
-  for(let d=.15;d<2.1;d+=.1){const t=collision.at(body.x-Math.sin(yaw)*d,body.z-Math.cos(yaw)*d);if(t?.type==='door')return t;}
+  for(let d=.15;d<2.1;d+=.1){const t=collision.at(body.x-Math.sin(yaw)*d,body.z-Math.cos(yaw)*d);if(t?.type==='door')return t;if(['wall','stone','unknown'].includes(t?.type))return null;}
   return null;
 }
 function interact(){
@@ -89,7 +99,7 @@ function interact(){
   else command(',');
 }
 function attack(){
-  if(defending||!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
+  if(defending||renderer.mapHeld||world?.player.busy||!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
   action({key:'.',melee:true,yaw});
 }
 function handleAction(name){
@@ -99,9 +109,11 @@ function handleAction(name){
   else if(name==='commands')command('#commands');
   else if(name==='interact')interact();
   else if(name==='settings')openGameMenu();
+  else if(name==='map'){setDefending(false);renderer.holdMap(!renderer.mapHeld,world,motion?.time||0);}
+  else if(name==='jump'){if(!motion?.blocked&&!motion?.transition&&startJump(body))send({type:'jump'});}
   else if(COMMAND_KEYS[name])command(COMMAND_KEYS[name]);
 }
-input=new GameInput({context:()=>ui.panel?'menu':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
+input=new GameInput({context:()=>ui.panel?'menu':world?.player.busy?'busy':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
 canvas.tabIndex=-1;
 
 
@@ -133,18 +145,19 @@ function connect(){
         if(e.kind==='door')audio.door();
       }return;
     }
-    if(data.type==='starting'){pendingActions.clear();playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;ui.setMode('loading');return;}
+    if(data.type==='starting'){pendingActions.clear();playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;pitch=0;ui.setMode('loading');return;}
     if(data.type==='motion'){
       if(!data.player||data.levelId!==lastLevel)return;
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
       motion=data;const p=data.player;
       if(!body||Math.hypot(body.x-p.x,body.z-p.z)>.65||data.blocked||data.transition)body={...p};
-      else {body.speedScale=p.speedScale??1;body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
+      else {body.speedScale=p.speedScale??1;body.jumpOffset=p.jumpOffset||0;body.jumpVelocity=p.jumpVelocity||0;body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
       renderer.setMotion(data);document.body.classList.toggle('floor-transition',data.transition&&!pendingPrompt);return;
     }
     if(data.type==='snapshot'){
       if(!data.player || !Number.isFinite(data.player.x))return;
-      world=normalize(data);const p=world.player;
+      world=normalize(data);const p=world.player;ui.setBusy(!!p.busy&&p.hp>0);
+      if(p.busy){input.clear();setDefending(false);renderer.holdMap(false);}
       const level=world.levelId||`${p.dungeon}:${p.depth}`;
       const signature=level+world.tiles.map(t=>`${t.x},${t.y},${t.type}`).join(';');
       if(signature!==collisionSignature){collision.setTiles(world.tiles);collisionSignature=signature;}
@@ -171,13 +184,13 @@ function connect(){
       return;
     }
     if(data.type==='prompt'){
-      pendingPrompt=data;unlock();
+      pendingPrompt=data;const aiming=!!data.aiming&&['menu','key','yn'].includes(data.kind);if(!aiming)unlock();
       if(data.kind==='display')ui.showMenu({id:'document',title:'Dungeon chronicle',items:(data.prompt||'').split('\n').map((text,i)=>({id:i,text,selectable:false})),readOnly:true});
-      else if(data.kind==='menu') ui.showMenu({id:data.id||'engine',title:data.prompt||'Choose an action',items:(data.items||[]).map(i=>({...i,text:i.text??i.name})),multiple:data.how===2||data.multiple,readOnly:data.how===0});
+      else if(data.kind==='menu') ui.showMenu({id:data.id||'engine',aiming,title:data.prompt||'Choose an action',items:(data.items||[]).map(i=>({...i,text:i.text??i.name})),multiple:data.how===2||data.multiple,readOnly:data.how===0});
       else {
         const directional=/direction|where|position|pick a location/i.test(data.prompt||'');
         const choices=data.choices|| (directional?'hjklyubn.<>':(world?.inventory||[]).map(i=>({key:i.key,text:i.name})).concat([{key:'?',text:'Show valid choices'},{key:'*',text:'Show all items'},{key:'-',text:'None / bare hands'},{key:'\r',text:'Continue'}]));
-        ui.showPrompt({text:data.prompt|| 'NetHack awaits your response.',choices,default:typeof data.default==='number'?String.fromCharCode(data.default):data.default,type:['text','extcmd'].includes(data.kind)?'text':'yn'});
+        ui.showPrompt({aiming,text:data.prompt|| 'NetHack awaits your response.',choices,default:typeof data.default==='number'?String.fromCharCode(data.default):data.default,type:['text','extcmd'].includes(data.kind)?'text':'yn'});
       }
       return;
     }
@@ -189,7 +202,7 @@ function connect(){
     if(data.type==='failure'){ui.setEngineStatus(data.text,false);ui.message(data.text);playing=false;ui.setMode('title');}
     if(data.type==='new-run-ready'){playing=false;world=null;body=null;motion=null;lastLevel=null;ui.closePanels(false);ui.setMode('title');ui.setEngineStatus('Ready for a new expedition',true);titleScene();return;}
     if(data.type==='ended'){
-      playing=false;unlock();
+      playing=false;ui.setBusy(false);renderer.holdMap(false);unlock();
       const saved=data.saved || (data.snapshot?.messages||world?.messages||[]).some(m=>/^saving\.\.\./i.test(typeof m==='string'?m:m.text));
       ui.setEngineStatus('The dungeon awaits.',true);
       if(saved){titleScene();ui.setMode('title');ui.setEngineStatus('Expedition saved. Continue when you are ready.',true);document.querySelector('#continue-game').hidden=false;}
@@ -218,13 +231,15 @@ document.addEventListener('pointerlockchange',()=>{
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas){yaw-=e.movementX*.0022*settings.sensitivity;pitch=Math.max(-1.15,Math.min(1.15,pitch-e.movementY*.0022*settings.sensitivity));}});
 canvas.addEventListener('click',()=>{audio.start();if(document.pointerLockElement!==canvas)capture();});
 canvas.addEventListener('mousedown',e=>{
-  if(!playing||ui.hasPanel)return;
+  if(!playing||ui.hasPanel||renderer.mapHeld||world?.player.busy)return;
   if(e.button===0&&document.pointerLockElement===canvas)attack();
   if(e.button===2&&document.pointerLockElement===canvas){setDefending(true);}
 });
+window.addEventListener('keyup',e=>{if(e.code==='Escape'&&resumeOnEscapeUp){resumeOnEscapeUp=false;capture();}});
 window.addEventListener('mouseup',e=>{if(e.button===2)setDefending(false);});
 window.addEventListener('blur',()=>setDefending(false));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)setDefending(false);});
+canvas.addEventListener('wheel',e=>{if(ui.panel?.aiming){const list=ui.$('.menu-list');if(list)list.scrollTop+=e.deltaY;e.preventDefault();}},{passive:false});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 document.querySelector('#mouse-capture').addEventListener('click',capture);
 window.addEventListener('resize',()=>renderer.resize());
@@ -250,24 +265,24 @@ let sendAt=0;
 function frame(time){
   const dt=Math.min((time-lastTime)/1000,.06);lastTime=time;
   const running=input.is('run'),crouch=input.is('crouch');
-  if(playing&&!ui.hasPanel){
+  if(playing&&!ui.hasPanel&&!world?.player.busy){
     if(input.is('turnLeft'))yaw+=dt*1.9;if(input.is('turnRight'))yaw-=dt*1.9;
     const movement={...input.motion(yaw),defend:defending};
     if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale??1),motion?.actors||[]);
     if(time-sendAt>33){send({type:'input',...movement});sendAt=time;}
   }
   const previousX=pose.x,previousY=pose.y;
-  if(playing&&body){pose.x=body.x/CELL;pose.y=body.z/CELL;pose.elevation=body.y;}
+  if(playing&&body){if(!world?.player.busy)advanceJump(body,dt);pose.x=body.x/CELL;pose.y=body.z/CELL;pose.elevation=body.y+(body.jumpOffset||0);}
   const travelled=Math.hypot(pose.x-previousX,pose.y-previousY)*CELL;
   if(playing&&travelled>.001&&time-lastStep>(running?280:460)){audio.step(running,collision.at(body.x,body.z)?.type,crouch);lastStep=time;}
   pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&travelled>.001,running};
   renderer.setPose(pose);renderer.update(dt);audio.ambient(dt,{playing,pose,torches:renderer.torches,water:world?.tiles.some(t=>t.type==='fountain'&&Math.hypot(t.x-pose.x,t.y-pose.y)<4)});
   if(world&&time-movementTime>150){
-    const [dx,dy]=facing(),p=world.player;
-    const ahead=world.tiles.find(t=>t.x===p.x+dx&&t.y===p.y+dy),here=world.tiles.find(t=>t.x===p.x&&t.y===p.y);
+    const p=world.player;
     const loot=targetLoot(world?.floorObjects,body,yaw,collision);
-    let interaction=loot?`Take ${loot.name}`:nearbyDoor()?'Open door':here?.type==='stairs_down'?'Walk down the stairwell':here?.type==='stairs_up'?'Walk up the stairwell':here?.object?`Pick up ${here.object.name}`:ahead?.monster?`${ahead.monster.name}${ahead.monster.tame?' · companion':ahead.monster.peaceful?' · peaceful':''}`:'';
-    ui.update({...world,elapsed:motion?.time,player:{...world.player,x:pose.x-.5,y:pose.y-.5},yaw,heading:-yaw,interaction,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
+    const canInteract=!renderer.mapHeld&&!ui.hasPanel&&!p.busy;
+    renderer.highlightPickup(canInteract?loot?.id??null:null,canInteract&&!loot?nearbyDoor():null);
+    ui.update({...world,elapsed:motion?.time,player:{...world.player,x:pose.x-.5,y:pose.y-.5},yaw,heading:-yaw,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
   }
   requestAnimationFrame(frame);
 }

@@ -19,7 +19,7 @@ console.log('Game:',await page.evaluate(()=>window.descent.state));
 assert.equal(await page.evaluate(()=>window.descent.state.player.race),'human');
 await page.screenshot({path:'test-results/game.png'});
 const start=await page.evaluate(()=>window.descent.state.player);
-await page.locator('#mouse-capture').click();
+await page.locator('#game').click();
 await page.keyboard.down('w');await page.waitForTimeout(2000);await page.keyboard.up('w');
 const moved=await page.evaluate(()=>window.descent.state.player);
 assert.ok(moved.x!==start.x||moved.y!==start.y,'WASD changes actual engine position');

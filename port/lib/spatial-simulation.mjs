@@ -1,6 +1,6 @@
 import {creatureProfile} from '../src/creatures.js';
 // NetHack: Descent, 2026-09-07. Authoritative fixed-step spatial simulation.
-import {CollisionWorld,integratePlayer,stairFinished,stairLocal,stairWorld,CELL,cellKey} from '../src/spatial.js';
+import {CollisionWorld,integratePlayer,startJump,advanceJump,stairFinished,stairLocal,stairWorld,CELL,cellKey} from '../src/spatial.js';
 
 export class SpatialSimulation {
   constructor(){this.world=new CollisionWorld();this.actors=new Map();this.player=null;this.input={};this.level=null;this.sequence=0;this.time=0;this.inputAt=-10;this.transition=false;this.projected=null;this.routes=new Map();}
@@ -28,6 +28,7 @@ export class SpatialSimulation {
     for(const id of this.actors.keys())if(!present.has(id))this.actors.delete(id);
   }
   setInput(input){this.input={forward:Math.max(-1,Math.min(1,Number(input.forward)||0)),strafe:Math.max(-1,Math.min(1,Number(input.strafe)||0)),yaw:Number.isFinite(input.yaw)?input.yaw:0,run:!!input.run,crouch:!!input.crouch,defend:!!input.defend};this.inputAt=this.time;}
+  jump(){return !this.blocked&&!this.transition&&startJump(this.player);}
   release(){this.input={yaw:this.input.yaw||0};}
   waypoint(actor,target) {
     const stair=this.world.stairAt(actor.x,actor.z)||this.world.stairAt(target.x,target.z);
@@ -63,6 +64,7 @@ export class SpatialSimulation {
   }
   update(dt) {
     this.time+=dt;if(!this.player)return null;
+    if(this.blocked){this.player.jumpOffset=0;this.player.jumpVelocity=0;}else advanceJump(this.player,dt);
     const bodies=[...this.actors.values()];
     if(!this.blocked&&!this.transition&&this.time-this.inputAt<.3)integratePlayer(this.world,this.player,this.input,dt*(this.player.speedScale??1),bodies);
     for(const a of bodies) {
@@ -98,15 +100,15 @@ export class SpatialSimulation {
     }
     return null;
   }
-  project(session) {
-    if(!this.player||!session.ready)return;
+  project(session,advance=false) {
+    if(!this.player||(!session.ready&&!advance))return;
     const p=this.player;this.sequence++;this.projected={x:Math.floor(p.x/CELL),z:Math.floor(p.z/CELL)};
     if(!this.world.walkable(this.projected.x,this.projected.z)){
       const candidates=[];for(let x=this.projected.x-1;x<=this.projected.x+1;x++)for(let z=this.projected.z-1;z<=this.projected.z+1;z++)if(this.world.walkable(x,z))candidates.push({x,z});
       this.projected=candidates.sort((a,b)=>Math.hypot((a.x+.5)*CELL-p.x,(a.z+.5)*CELL-p.z)-Math.hypot((b.x+.5)*CELL-p.x,(b.z+.5)*CELL-p.z))[0]||this.nativePlayer;
     }
     session.write({kind:'defend',value:!this.blocked&&!this.transition&&this.time-this.inputAt<.3&&!!this.input.defend});
-    session.write({kind:'position',value:[this.sequence,...this.level.split(':').map(Number),p.x,p.z,p.y,this.projected.x,this.projected.z]});
+    session.write({kind:'position',value:[this.sequence,...this.level.split(':').map(Number),p.x,p.z,p.y+(p.jumpOffset||0),this.projected.x,this.projected.z]});
     for(const a of this.actors.values()){
       a.projected={x:Math.floor(a.x/CELL),z:Math.floor(a.z/CELL)};
       const inReach=Math.hypot(a.x-p.x,a.z-p.z)<1.85&&Math.abs(a.y-p.y)<1.5;

@@ -59,4 +59,4 @@ if (-not (Test-Path -LiteralPath (Join-Path $engineRoot 'data/sysconf'))) {
     [IO.File]::WriteAllText((Join-Path $engineRoot 'data/sysconf'),$config)
 }
 if (-not (Test-Path -LiteralPath (Join-Path $engineRoot 'data/record'))) { [IO.File]::WriteAllText((Join-Path $engineRoot 'data/record'),'') }
-Write-Host 'Built port/engine/bin/nethack-engine-polished-v05.exe from this NetHack source tree.'
+Write-Host 'Built port/engine/bin/nethack-engine-polished-v06.exe from this NetHack source tree.'

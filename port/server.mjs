@@ -14,11 +14,11 @@ import {SpatialSimulation} from './lib/spatial-simulation.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const repository=path.dirname(root);
-const port=Number(process.env.PORT)||5176;
-const production=existsSync(path.join(root,'dist-polished-v05/index.html')) && !process.argv.includes('--dev');
-const siteRoot=production?path.join(root,'dist-polished-v05'):root;
-const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-polished-v05.exe');
-const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished-v05');
+const port=Number(process.env.PORT)||5177;
+const production=existsSync(path.join(root,'dist-polished-v06/index.html')) && !process.argv.includes('--dev');
+const siteRoot=production?path.join(root,'dist-polished-v06'):root;
+const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-polished-v06.exe');
+const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished-v06');
 const commands=readCommands(path.join(repository,'src/cmd.c'));
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.map':'application/json'};
 const metadataFile=path.join(runtime,'descent-session.json');
@@ -30,7 +30,7 @@ const server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Cache-Control','no-store');
-  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production,version:'0.5.0'});
+  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production,version:'0.6.0'});
   if(url.pathname==='/api/commands')return json(res,commands);
   let file;
   if(url.pathname==='/vendor/three.js') file=path.join(root,'node_modules/three/build/three.module.js');
@@ -102,20 +102,26 @@ function start(character={},resume=false){
     if(a.spatialMelee)a.melee=spatial.melee(a.yaw)||0;
     awaitingTurn=session.snapshot?.actionSerial;session.act(a);
   }});
+  session.on('advance',()=>spatial.project(session,true));
   session.on('ready',()=>{
     // Bumping a wall or using a free informational command cannot stop time.
     const previous=awaitingTurn;awaitingTurn=null;actions?.update();
     if(previous!==null&&session.ready&&session.snapshot?.actionSerial<=previous)session.act({key:'.',idle:true});
   });
   session.on('snapshot',snapshot=>{
+    const prior=lastSnapshot;
     spatial.accept(snapshot);
+    if(prior?.player.busy){
+      const passed=Math.max(0,Math.min(200,snapshot.turn-prior.turn))*worldInterval/1000;
+      for(let t=0;t<passed;t+=1/60)spatial.update(Math.min(1/60,passed-t));
+    }
     if(restoredSpatial){spatial.restore(restoredSpatial);restoredSpatial=null;}
     const events=feedback.accept(snapshot);if(events.length)broadcast({type:'feedback',events});
     lastSnapshot=snapshot;broadcast(snapshot);
     broadcast(spatial.packet());
     if(snapshot.player?.hp>0&&!clock.active)clock.start();
   });
-  session.on('prompt',request=>{if(newRunPending&&/save/i.test(request.prompt||'')&&request.kind==='yn'){queueMicrotask(()=>session.answer({kind:'key',value:'y'}));return;}lastPrompt=request;broadcast({type:'prompt',...request,type:'prompt'});});
+  session.on('prompt',request=>{if(newRunPending&&/save/i.test(request.prompt||'')&&request.kind==='yn'){queueMicrotask(()=>session.answer({kind:'key',value:'y'}));return;}lastPrompt=request;broadcast({type:'prompt',...request,aiming:['Z','t','f','z'].includes(session.transaction?.steps[0]?.input?.value),type:'prompt'});});
   session.on('clearPrompt',()=>{lastPrompt=null;broadcast({type:'clearPrompt'});});
   session.on('notice',notice);
   session.on('diagnostic',text=>{console.log('[engine]',text.trim().slice(0,1200));});
@@ -147,6 +153,7 @@ wss.on('connection',ws=>{
     if(message.type==='continue')return start({},true);
     if(message.type==='settings'){worldInterval=Math.max(250,Math.min(3000,(Number(message.pulseTime)||.8)*1000));if(clock)clock.setInterval(worldInterval);if(session&&!session.closed)session.write({kind:'pace',value:worldInterval});return;}
     if(!session||session.closed)return;
+    if(message.type==='jump'){spatial.jump();return;}
     if(message.type==='input'){spatial.setInput(message);return;}
     if(message.type==='action') {
       const action={id:typeof message.id==='string'?message.id.slice(0,100):null,key:String(message.key||'.').slice(0,100),aim:typeof message.aim==='string'?message.aim.slice(0,1):null,spatialMelee:!!message.melee,yaw:Number.isFinite(message.yaw)?message.yaw:spatial.input.yaw,targetCell:message.targetCell&&Number.isFinite(message.targetCell.x)&&Number.isFinite(message.targetCell.z)?message.targetCell:null};
@@ -157,7 +164,7 @@ wss.on('connection',ws=>{
     }
     if(message.type==='release'){spatial.release();session.write({kind:'defend',value:false});}
     if(message.type==='defend'){spatial.input.defend=!!message.active;session.write({kind:'defend',value:!spatial.blocked&&!!message.active});}
-    if(message.type==='answer')session.answer(message.input||{kind:'key',value:27});
+    if(message.type==='answer')session.answer(message.input||{kind:'key',value:27},typeof message.aim==='string'?message.aim.slice(0,1):undefined);
     if(message.type==='cancel'){actions.clear();session.cancel();}
   });
   ws.on('close',()=>spatial.release());
@@ -167,7 +174,7 @@ const tick=setInterval(()=>{
   const now=performance.now();accumulator+=Math.min(.1,(now-lastTick)/1000);lastTick=now;
   if(!session||session.closed||!spatial.player){accumulator=0;return;}
   while(accumulator>=1/60){
-    const stairs=spatial.update(1/60);accumulator-=1/60;
+    const stairs=lastSnapshot?.player.busy?null:spatial.update(1/60);accumulator-=1/60;
     if(stairs){transitionAt=now;clock.enqueue({key:stairs});}
   }
   // Refused stairs (burden, missing pet, surface exit) must remain reversible.
