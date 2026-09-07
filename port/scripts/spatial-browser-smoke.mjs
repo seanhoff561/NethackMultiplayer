@@ -8,7 +8,7 @@ process.chdir(fileURLToPath(new URL('..',import.meta.url)));
 await mkdir('test-results',{recursive:true});
 const runtime=await mkdtemp(path.resolve('test-results/spatial-browser-'));
 const port=5182;
-const server=spawn(process.execPath,['server.mjs'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),NETHACK_RUNTIME:runtime},windowsHide:true,stdio:['ignore','pipe','pipe']});
+const server=spawn(process.execPath,['server.mjs',...(process.argv.includes('--dev')?['--dev']:[])],{cwd:process.cwd(),env:{...process.env,PORT:String(port),NETHACK_RUNTIME:runtime},windowsHide:true,stdio:['ignore','pipe','pipe']});
 let output='';server.stdout.on('data',b=>output+=b);server.stderr.on('data',b=>output+=b);
 let browser;
 try{
@@ -35,7 +35,7 @@ try{
   const actorsAfter=await page.evaluate(()=>window.descent.state.motion.actors);
   console.log('Fractional movement metres',travelled,'actor movement',actors.map(a=>({id:a.id,delta:Math.hypot((actorsAfter.find(b=>b.id===a.id)?.x??a.x)-a.x,(actorsAfter.find(b=>b.id===a.id)?.z??a.z)-a.z)})));
   await page.screenshot({path:'test-results/spatial-inventory.png'});
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');await page.locator('[data-action=resume]').click();
   const savedPose=await page.evaluate(()=>window.descent.state.motion.player);
   await page.keyboard.press('Tab');await page.locator('#command-search').fill('save');await page.locator('[data-palette-key="S"]').click();
   await page.locator('[data-choice="y"]').waitFor({timeout:8000});await page.locator('[data-choice="y"]').click();
@@ -44,7 +44,7 @@ try{
   const resumed=await page.evaluate(()=>window.descent.state.motion.player);
   assert.ok(Math.hypot(savedPose.x-resumed.x,savedPose.z-resumed.z)<.05,'save/continue retains fractional placement');
   // Render the actual native stairwell from eye level and from its turning landing.
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');await page.locator('[data-action=resume]').click();
   const stair=await page.evaluate(()=>window.descent.state.collision.find(s=>s.sign<0)||window.descent.state.collision[0]);
   if(stair){
     await page.evaluate(s=>{

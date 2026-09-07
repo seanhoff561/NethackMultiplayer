@@ -3,11 +3,12 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT} from './spatial.js';
 import {lootPositions} from './loot.js';
 import {swingPose} from './presentation.js';
+import {voxelVolume,dressingPlan} from './voxel.js';
 
 const CELL = 3;
 const WALL_HEIGHT = 3.65;
-const PALETTE = [0x38403f, 0xb74035, 0x618b48, 0x896647, 0x52689b, 0x955284, 0x559a99, 0x92958b,
-  0x9a998c, 0xd98a43, 0x8dad53, 0xd5bd62, 0x758fc3, 0xbd80b3, 0x86c6bd, 0xe6e0c8];
+const PALETTE = [0x353442, 0x8f494c, 0x68775c, 0x77665f, 0x596488, 0x79577e, 0x527b7f, 0x8b8a96,
+  0x888393, 0xaa795f, 0x869473, 0xb1a485, 0x858dac, 0xa586ac, 0x8eb0ae, 0xd2cdd4];
 const OPEN_TYPES = new Set(['floor', 'corridor', 'door', 'door_open', 'stairs_up', 'stairs_down', 'fountain', 'altar', 'water', 'lava', 'ice', 'tree', 'sink', 'grave', 'throne', 'bars', 'trap']);
 const hash = (x, y, seed = 0) => {
   let n = Math.imul(x + 173, 374761393) ^ Math.imul(y + 97, 668265263) ^ Math.imul(seed + 11, 1274126177);
@@ -35,7 +36,7 @@ function canvasTexture(draw, size = 512) {
 }
 
 function stoneTexture(floor = false) {
-  const size=1024,canvas=document.createElement('canvas'),heightCanvas=document.createElement('canvas');
+  const size=256,canvas=document.createElement('canvas'),heightCanvas=document.createElement('canvas');
   canvas.width=canvas.height=heightCanvas.width=heightCanvas.height=size;
   const ctx=canvas.getContext('2d'),hctx=heightCanvas.getContext('2d');
   const pixels=ctx.createImageData(size,size),heights=hctx.createImageData(size,size);
@@ -48,9 +49,9 @@ function stoneTexture(floor = false) {
   const rows=floor?3:5,columns=3,rowHeight=size/rows,brickWidth=size/columns;
   for(let y=0;y<size;y++)for(let x=0;x<size;x++){
     const broad=noise(x/size*8,y/size*8,8),grain=noise(x/size*64,y/size*64,64),fine=noise(x/size*256,y/size*256,256);
-    const wy=y+(broad-.5)*10, row=Math.floor(wy/rowHeight), rowY=((wy%rowHeight)+rowHeight)%rowHeight;
-    const wx=x+(row%2)*brickWidth*.5+(grain-.5)*6,col=Math.floor(wx/brickWidth),brickX=((wx%brickWidth)+brickWidth)%brickWidth;
-    const edge=Math.min(brickX,brickWidth-brickX,rowY,rowHeight-rowY),bevel=smooth(Math.min(1,Math.max(0,(edge-2)/11)));
+    const wy=y+(broad-.5)*2.5, row=Math.floor(wy/rowHeight), rowY=((wy%rowHeight)+rowHeight)%rowHeight;
+    const wx=x+(row%2)*brickWidth*.5+(grain-.5)*1.5,col=Math.floor(wx/brickWidth),brickX=((wx%brickWidth)+brickWidth)%brickWidth;
+    const edge=Math.min(brickX,brickWidth-brickX,rowY,rowHeight-rowY),bevel=smooth(Math.min(1,Math.max(0,(edge-.6)/2.6)));
     const variation=hash((col%columns+columns)%columns,(row%rows+rows)%rows,floor?14:15);
     const veins=Math.max(0,1-Math.abs(grain-.42)*32)*(broad>.5?1:.2);
     const chip=Math.max(0,(fine-.73)*4),pore=(hash(x,y,80)>.975?.05:0);
@@ -58,13 +59,13 @@ function stoneTexture(floor = false) {
     const h=(.16*(1-bevel)+relief*bevel)*255;
     const base=(57+variation*24+broad*21+grain*12+fine*9-veins*7-chip*17)*( .37+.63*bevel );
     const i=(y*size+x)*4;
-    pixels.data[i]=base*1.1;pixels.data[i+1]=base*1.02;pixels.data[i+2]=base*.9;pixels.data[i+3]=255;
+    pixels.data[i]=base*.92;pixels.data[i+1]=base*.98;pixels.data[i+2]=base*1.12;pixels.data[i+3]=255;
     heights.data[i]=heights.data[i+1]=heights.data[i+2]=h;heights.data[i+3]=255;
   }
   ctx.putImageData(pixels,0,0);hctx.putImageData(heights,0,0);
   const texture=new THREE.CanvasTexture(canvas),bump=new THREE.CanvasTexture(heightCanvas);
   texture.colorSpace=THREE.SRGBColorSpace;
-  for(const t of [texture,bump]){t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;}
+  for(const t of [texture,bump]){t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;t.magFilter=THREE.NearestFilter;}
   texture.userData.bump=bump;return texture;
 }
 
@@ -133,14 +134,14 @@ export class DungeonRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.22;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.autoClear = false;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0c1213);
-    this.scene.fog = new THREE.FogExp2(0x0c1213, 0.043);
+    this.scene.background = new THREE.Color(0x0b0d18);
+    this.scene.fog = new THREE.FogExp2(0x0b0d18, 0.043);
     this.camera = new THREE.PerspectiveCamera(76, 1, 0.065, 100);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
@@ -149,11 +150,11 @@ export class DungeonRenderer {
     this.items = new THREE.Group();
     this.scene.add(this.world, this.creatures, this.items);
 
-    this.scene.add(new THREE.HemisphereLight(0x8fa9a3, 0x272318, 0.3));
-    this.scene.add(new THREE.AmbientLight(0x77858a, 0.08));
-    this.lantern = new THREE.PointLight(0xffd8a2, 17, 15, 1.5);
+    this.scene.add(new THREE.HemisphereLight(0x999bc5, 0x191421, 0.64));
+    this.scene.add(new THREE.AmbientLight(0x777393, 0.14));
+    this.lantern = new THREE.PointLight(0xadb8e2, 17, 15, 1.5);
     this.scene.add(this.lantern);
-    this.headlight = new THREE.SpotLight(0xf5e3bd, 10, 22, 0.9, 0.9, 1.4);
+    this.headlight = new THREE.SpotLight(0xc1c9e1, 13, 21, 0.9, 0.9, 1.4);
     this.headlight.castShadow = true;
     this.headlight.shadow.mapSize.set(1024, 1024);
     this.headlight.shadow.bias = -0.0008;
@@ -162,7 +163,7 @@ export class DungeonRenderer {
     this.headlight.shadow.camera.far = 23;
     this.scene.add(this.headlight, this.headlight.target);
     this.torchLights = Array.from({ length: 7 }, () => {
-      const light = new THREE.PointLight(0xffad58, 0, 12, 1.6);
+      const light = new THREE.PointLight(0xe0b3a0, 0, 9, 1.6);
       this.scene.add(light); return light;
     });
 
@@ -172,10 +173,10 @@ export class DungeonRenderer {
     this.woodTexture = this.keep(woodTexture());
     this.glowTexture = this.keep(glowTexture());
     this.shadowTexture = this.keep(shadowTexture());
-    this.wallMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.wallTexture, bumpMap:this.wallBump, bumpScale:.16, color: 0xb4a18b, roughness: 0.95 }));
-    this.floorMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.floorTexture, bumpMap:this.floorBump, bumpScale:.1, color: 0xb7ac98, roughness: 0.91 }));
-    this.ceilingMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.wallTexture, color: 0x505c57, roughness: 1 }));
-    this.woodMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.woodTexture, color: 0xb3a081, roughness: 0.86 }));
+    this.wallMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.wallTexture, bumpMap:this.wallBump, bumpScale:.16, color: 0x8b8d9f, roughness: 0.95 }));
+    this.floorMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.floorTexture, bumpMap:this.floorBump, bumpScale:.1, color: 0x8a8998, roughness: 0.91 }));
+    this.ceilingMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.wallTexture, color: 0x434554, roughness: 1 }));
+    this.woodMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.woodTexture, color: 0x827b8b, roughness: 0.86 }));
     this.waterMaterial = this.keep(new THREE.MeshStandardMaterial({ color: 0x3b6f70, emissive: 0x14302e, emissiveIntensity: 0.18, roughness: 0.17, metalness: 0.48, transparent: true, opacity: 0.88 }));
     this.lavaMaterial = this.keep(new THREE.MeshStandardMaterial({ map: this.floorTexture, color: 0xf67c2e, emissive: 0xd73709, emissiveMap: this.floorTexture, emissiveIntensity: 2.2, roughness: 0.75 }));
     this.shadowMaterial = this.keep(new THREE.MeshBasicMaterial({ map: this.shadowTexture, color: 0x000000, transparent: true, opacity: 0.65, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
@@ -189,19 +190,21 @@ export class DungeonRenderer {
 
   material(color = 0x8b8e7a, metalness = 0, roughness = 0.85, emissive = 0) {
     const key = `${color},${metalness},${roughness},${emissive}`;
-    if (!this.materials.has(key)) this.materials.set(key, this.keep(new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive, emissiveIntensity: emissive ? 0.8 : 0, flatShading: false })));
+    if (!this.materials.has(key)) this.materials.set(key, this.keep(new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive, emissiveIntensity: emissive ? 0.8 : 0, flatShading: true })));
     return this.materials.get(key);
   }
 
   geometry(kind) {
     if (!this.geometries.has(kind)) {
       let geometry;
-      if (kind === 'sphere') geometry = new THREE.SphereGeometry(0.5, 24, 16);
-      else if (kind === 'ico') geometry = new THREE.IcosahedronGeometry(0.5, 1);
+      if(kind==='sphere'||kind==='ico'){
+        const data=voxelVolume(kind==='sphere'?6:4);geometry=new THREE.BufferGeometry();
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(data.positions,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(data.normals,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute(data.uvs,2));
+      }
       else if (kind === 'gem') geometry = new THREE.OctahedronGeometry(0.5, 0);
-      else if (kind === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+      else if (kind === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
       else if (kind === 'cone') geometry = new THREE.ConeGeometry(0.5, 1, 8);
-      else if (kind === 'torus') geometry = new THREE.TorusGeometry(0.5, 0.075, 8, 28);
+      else if (kind === 'torus') geometry = new THREE.TorusGeometry(0.5, 0.075, 4, 12);
       else if (kind === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
       else geometry = new THREE.BoxGeometry(1, 1, 1);
       this.geometries.set(kind, this.keep(geometry));
@@ -255,9 +258,9 @@ export class DungeonRenderer {
       this.levelId = levelId;
       const branch=(snapshot.player?.dungeon||'').toLowerCase();
       const hell=/gehennom|hell|vlad|sanctum/.test(branch),mine=/mine/.test(branch),endgame=/plane|astral/.test(branch);
-      this.wallMaterial.color.setHex(hell?0x79615a:mine?0x91816a:endgame?0xb1b7b2:0xb4a18b);
-      this.floorMaterial.color.setHex(hell?0x826554:mine?0x9a896b:0xb7b2a0);
-      this.scene.fog.color.setHex(hell?0x1b0907:mine?0x10120e:0x0c1213);this.scene.background.copy(this.scene.fog.color);
+      this.wallMaterial.color.setHex(hell?0x776076:mine?0x79858d:endgame?0xa0a0bf:0x8b8d9f);
+      this.floorMaterial.color.setHex(hell?0x786379:mine?0x818a8b:0x8a8998);
+      this.scene.fog.color.setHex(hell?0x1b0907:mine?0x10120e:0x0b0d18);this.scene.background.copy(this.scene.fog.color);
       this._buildTerrain(tiles);
     }
     if (levelChanged) {
@@ -328,10 +331,7 @@ export class DungeonRenderer {
           this._rubble(x + dx, z + dy, tile.x, tile.y);
         }
       }
-      if(type==='floor'&&adjacentWalls.length&&hash(tile.x,tile.y,72)>.82){
-        const [dx,dy,rotation]=adjacentWalls[0];
-        this._landmark(x+dx*1.46,z+dy*1.46,rotation,Math.floor(hash(Math.floor(tile.x/8),Math.floor(tile.y/6),19)*4));
-      }
+
       // Narrow stone ribs make long passage ceilings read as built architecture.
       if (type === 'corridor' && (tile.x + tile.y) % 3 === 0) {
         const alongZ = OPEN_TYPES.has(typeAt(tile.x, tile.y - 1)) || OPEN_TYPES.has(typeAt(tile.x, tile.y + 1));
@@ -345,6 +345,7 @@ export class DungeonRenderer {
     this._instances(this.world, posts, this.wallMaterial);
     this._instances(this.world, water, this.waterMaterial);
     this._instances(this.world, lava, this.lavaMaterial);
+    this.dressing=dressingPlan(tiles);for(const prop of this.dressing)this._dressing(prop);this._batchDressing();
     this.terrainTiles = grid;
     this._placeMotes(tiles);
   }
@@ -435,7 +436,7 @@ export class DungeonRenderer {
         this.bone(group,[xx,h,zz],[xx,h+.9,zz],.028,rail);
       }
     }
-    const lamp=new THREE.PointLight(0xffbd79,7,7,1.8);lamp.position.set(0,sign*H/2+1.7,-1.15);group.add(lamp);
+    const lamp=new THREE.PointLight(0xa4a4d8,4.5,7,1.8);lamp.position.set(0,sign*H/2+1.7,-1.15);group.add(lamp);
     const flame=new THREE.Sprite(this.flameMaterial);flame.position.copy(lamp.position);flame.scale.set(.3,.55,.3);group.add(flame);
     // A dark opening beyond the final landing gives the connection real depth.
     this._stoneBox(group,this.wallMaterial,[.77,sign*H+2.9,1.49],[1.4,.35,.18]);
@@ -873,7 +874,7 @@ export class DungeonRenderer {
   }
 
   _weapon(parent, name='long sword') {
-    const label=name.toLowerCase(),steel=this.material(0x8f9b98,.78,.37),edge=this.material(0xc2c9c3,.9,.3),gold=this.material(0x8d754b,.72,.42),leather=this.material(0x4f3726);
+    const label=name.toLowerCase(),steel=this.material(0x565c70,.46,.73),edge=this.material(0x828799,.52,.64),gold=this.material(0x666072,.45,.7),leather=this.material(0x4f3726);
     if(/bare hands|empty|unarmed/.test(label))return;
     if(/bow/.test(label)) {
       for(const side of [-1,1]){this.bone(parent,[0,0,0],[side*.15,side*.45,0],.036,this.woodMaterial);this.bone(parent,[side*.15,side*.45,0],[0,side*.78,.08],.024,this.woodMaterial);}
@@ -912,7 +913,7 @@ export class DungeonRenderer {
       this.mesh(parent,/hammer/.test(label)?'box':'ico',/club/.test(label)?this.woodMaterial:steel,[0,.68,0],[.34,.35,.29]);
       if(/mace/.test(label))for(let i=0;i<6;i++)this.mesh(parent,'cone',edge,[Math.sin(i)*.17,.69,Math.cos(i)*.17],[.08,.25,.08],[Math.cos(i)*1.2,0,Math.sin(i)*1.2]);
     }else{
-      const length=/dagger|knife|short|athame/.test(label)?.58:1.14;
+      const length=/dagger|knife|short|athame/.test(label)?.64:1.72;
       for(const side of [-1,1]){
         this.bone(parent,[0,.19,0],[side*.12,.19,0],.032,gold);
         this.bone(parent,[side*.12,.19,0],[side*.23,.13,.008],.027,steel);
@@ -932,7 +933,7 @@ export class DungeonRenderer {
       }
       const blade=new THREE.Mesh(this.geometries.get(key),steel);blade.castShadow=true;parent.add(blade);
       for(const face of [-1,1]){
-        this.mesh(parent,'box',this.material(0x495558,.88,.36),[0,.29+length*.28,face*.025],[.012,length*.53,.002]);
+        this.mesh(parent,'box',this.material(0x303744,.42,.77),[0,.29+length*.28,face*.025],[.012,length*.53,.002]);
         this.mesh(parent,'box',gold,[0,.255,face*.027],[.035,.012,.002]);
       }
 
@@ -940,7 +941,7 @@ export class DungeonRenderer {
   }
 
   _shield(parent,name='small shield') {
-    const metal=this.material(0x7e8c88,.75,.42),gold=this.material(0xad955e,.8,.35);
+    const metal=this.material(0x535b70,.48,.75),gold=this.material(0x797085,.48,.72);
     this.mesh(parent,'sphere',this.woodMaterial,[0,0,0],[.7,.85,.15]);
     this.mesh(parent,'torus',metal,[0,0,.045],[.72,.85,.65]);
     this.mesh(parent,'sphere',metal,[0,0,.105],[.22,.24,.15]);
@@ -953,37 +954,16 @@ export class DungeonRenderer {
     this.viewScene=new THREE.Scene();this.viewCamera=new THREE.PerspectiveCamera(64,1,.01,8);
     const environment=new RoomEnvironment(),pmrem=new THREE.PMREMGenerator(this.renderer);
     const reflection=this.keep(pmrem.fromScene(environment,.06));environment.dispose();pmrem.dispose();
-    this.viewScene.environment=reflection.texture;this.viewScene.environmentIntensity=.65;
-    this.scene.environment=reflection.texture;this.scene.environmentIntensity=.045;
-    this.viewFill=new THREE.HemisphereLight(0xb8c5ce,0x302319,.7);this.viewScene.add(this.viewFill);
-    this.viewLamp=new THREE.PointLight(0xffcf94,7,8);this.viewLamp.position.set(-.5,.7,1);this.viewScene.add(this.viewLamp);
+    this.viewScene.environment=reflection.texture;this.viewScene.environmentIntensity=.12;
+    this.scene.environment=reflection.texture;this.scene.environmentIntensity=.055;
+    this.viewFill=new THREE.HemisphereLight(0x9aa7cb,0x211a30,.35);this.viewScene.add(this.viewFill);
+    this.viewLamp=new THREE.PointLight(0xc0cae5,3,8);this.viewLamp.position.set(-.5,.7,1);this.viewScene.add(this.viewLamp);
     this.rightHand=new THREE.Group();this.leftHand=new THREE.Group();this.viewScene.add(this.rightHand,this.leftHand);
     this.rightHand.scale.setScalar(.7);this.leftHand.scale.setScalar(.6);
     this.weaponMount=new THREE.Group();this.rightHand.add(this.weaponMount);
     this.shieldMount=new THREE.Group();this.leftHand.add(this.shieldMount);
-    const glove=this.material(0x5e4634,0,.95),stitch=this.material(0x796347,0,1),iron=this.material(0x82796b,.62,.5);
-    for(const hand of [this.rightHand,this.leftHand]){
-      const side=hand===this.rightHand?1:-1;
-      this.mesh(hand,'sphere',glove,[0,-.11,.025],[.19,.235,.12]);
-      // A tapered sleeve, fitted wrist and overlapping leather bracer.
-      this.bone(hand,[.01,-.23,.07],[.03*side,-.4,.2],.082,glove);
-      for(let i=0;i<3;i++){
-        this.mesh(hand,'torus',iron,[.015*side,-.28-i*.075,.1+i*.058],[.172,.172,.1],[Math.PI/2-.7,0,0]);
-        for(const edge of [-1,1])this.mesh(hand,'sphere',stitch,[edge*.078,-.31-i*.065,.02+i*.055],[.025,.025,.015]);
-      }
-      for(let i=0;i<4;i++){
-        const y=-.015-i*.047;
-        this.bone(hand,[-.055,y,.018],[.037,y,-.078],.027,glove);
-        this.bone(hand,[.037,y,-.078],[.081,y,-.023],.025,glove);
-        this.mesh(hand,'sphere',stitch,[-.02,y+.012,-.04],[.043,.011,.015]);
-      }
-      this.bone(hand,[-.085,-.12,.05],[-.095,.005,.07],.034,glove);
-      this.bone(hand,[-.095,.005,.07],[-.015,.01,.082],.03,glove);
-      for(let i=0;i<4;i++)for(let j=0;j<4;j++)this.bone(hand,[-.05+i*.028,-.18+j*.029,.076+j*.002],[-.05+i*.028,-.169+j*.029,.077+j*.002],.0013,stitch);
-      const sleeve=this.mesh(this.viewScene,'cylinder',glove);sleeve.name='continuous-forearm';
-      hand.userData.forearm=sleeve;
-
-    }
+    // Weapon/shield mounts are the complete view model; no hands or arms.
+    this.rightHand.name='weapon-rig';this.leftHand.name='shield-rig';
     this.equipmentSignature='';this.guarding=false;
   }
 
@@ -993,8 +973,8 @@ export class DungeonRenderer {
     const shield=snapshot.player?.shield||inventory.find(i=>/shield/.test(i.name||'')&&i.equipped)?.name||'';
     const signature=weapon+'|'+shield;if(signature===this.equipmentSignature)return;
     this.equipmentSignature=signature;this.weaponMount.clear();this.shieldMount.clear();this._weapon(this.weaponMount,weapon);
-    this.weaponMount.rotation.set(-.23,0,-.12);this.weaponMount.scale.setScalar(.8);
-    this.hasShield=!!shield;this.leftHand.visible=true;
+    this.weaponMount.rotation.set(0,0,0);this.weaponMount.scale.setScalar(.92);
+    this.hasShield=!!shield;this.leftHand.visible=!!shield;
     if(shield){this._shield(this.shieldMount,shield);this.shieldMount.rotation.y=.24;this.shieldMount.scale.setScalar(.88);}
     this.weaponName=weapon;
   }
@@ -1014,7 +994,7 @@ export class DungeonRenderer {
       fragmentShader:`varying float illumination;varying float distanceToEye;
         void main(){float r=length(gl_PointCoord-.5)*2.;float soft=1.-smoothstep(.05,1.,r);
           float alpha=soft*illumination*.28*exp(-distanceToEye*distanceToEye*.002);
-          gl_FragColor=vec4(.78,.66,.46,alpha);}`
+          gl_FragColor=vec4(.55,.61,.78,alpha);}`
     }));
     this.motes=new THREE.Points(geometry,material);this.motes.name='world-space-dust';this.scene.add(this.motes);
   }
@@ -1029,36 +1009,118 @@ export class DungeonRenderer {
     this.motes.geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));this.motes.geometry.computeBoundingSphere();
   }
 
-  _landmark(x,z,rotation,style){
-    const group=new THREE.Group();group.position.set(x,0,z);group.rotation.y=rotation;group.name=['faded-banner','sealed-ossuary','iron-chainwork','carved-sun'][style];this.world.add(group);
-    const iron=this.material(0x463c30,.65,.65),bronze=this.material(0x8e7549,.65,.6);
-    if(style===0){
-      this.bone(group,[-.57,3.05,.1],[.57,3.05,.1],.024,iron);
-      const fabric=this.material(0x58322b,0,1);
-      const shape=new THREE.Shape();shape.moveTo(-.43,2.98);shape.lineTo(.43,2.98);shape.lineTo(.42,1.52);shape.lineTo(.26,1.55);shape.lineTo(.1,1.34);shape.lineTo(-.05,1.46);shape.lineTo(-.41,1.3);shape.closePath();
-      const geometry=new THREE.ShapeGeometry(shape);const flag=new THREE.Mesh(geometry,fabric);flag.position.z=.075;flag.userData.terrainGeometry=true;group.add(flag);
-      this.mesh(group,'torus',bronze,[0,2.25,.1],[.38,.38,.1]);
-      for(const side of [-1,1])this.bone(group,[0,1.87,.105],[side*.27,2.53,.105],.014,bronze);
-    }else if(style===1){
-      this._stoneBox(group,this.wallMaterial,[0,2.18,.025],[1.38,1.57,.13]);
-      this.mesh(group,'box',this.material(0x201c17),[0,2.18,.1],[1.03,1.23,.018]);
-      for(const side of [-1,1])this._stoneBox(group,this.wallMaterial,[side*.61,2.2,.14],[.16,1.58,.18]);
-      for(let i=-2;i<=2;i++)this.bone(group,[i*.19,1.64,.2],[i*.19,2.71,.2],.018,iron);
-      for(const y of [1.7,2.64])this.bone(group,[-.49,y,.2],[.49,y,.2],.025,iron);
-      this.mesh(group,'sphere',this.material(0x9f947c),[0,1.95,.15],[.28,.33,.15]);
-    }else if(style===2){
+  _dressing(p){
+    const group=new THREE.Group();group.position.set(p.x,0,p.z);group.rotation.y=p.angle;group.name=`dressing-${p.theme}-${p.variant}`;group.userData.dressing=true;this.world.add(group);
+    const stone=this.material(0x535768,0,.97),dark=this.material(0x202333,0,1),bone=this.material(0x9995a2,0,.95),iron=this.material(0x45485b,.35,.82),cloth=this.material(0x45344e,0,1);
+    const animate=(type,object,extra={})=>{object.userData.decorativeMotion=true;this.features.push({type,group:object,phase:p.phase,...extra});};
+    // Wall attachments stay within the unwalkable margin. Low fragments and
+    // overhead features leave native routes, door approaches and stairs open.
+    if(p.theme===0){
+      if(p.variant===0){
+        this.mesh(group,'box',dark,[0,1.42,.03],[.78,2.18,.08]);
+        for(const side of [-1,1])this.mesh(group,'box',stone,[side*.42,1.45,.07],[.12,2.32,.14]);
+        for(const y of [.3,2.58])this.mesh(group,'box',stone,[0,y,.075],[.96,.15,.15]);
+        this.mesh(group,'box',bone,[0,1.47,.13],[.06,.71,.04]);this.mesh(group,'box',bone,[0,1.61,.13],[.4,.06,.04]);
+        for(let i=0;i<4;i++)this.mesh(group,'box',stone,[(i-1.5)*.19,2.73-Math.abs(i-1.5)*.06,.06],[.2,.18,.13]);
+      }else if(p.variant===2){
+        this.mesh(group,'box',dark,[0,1.42,.025],[.99,2.5,.055]);
+        for(const side of [-1,1]){
+          this.mesh(group,'box',stone,[side*.5,1.46,.07],[.1,2.6,.14]);
+          this.mesh(group,'box',stone,[side*.2,1.84,.13],[.22,.27,.15]);
+          this.mesh(group,'box',stone,[side*.16,.82,.12],[.16,.66,.13]);
+          this.mesh(group,'box',stone,[side*.26,1.54,.13],[.13,.45,.15],[0,0,side*.13]);
+        }
+        this.mesh(group,'sphere',stone,[0,2.11,.12],[.32,.39,.18]);
+        this.mesh(group,'box',dark,[0,2.13,.218],[.18,.035,.018]);
+        this.mesh(group,'box',stone,[0,1.57,.13],[.37,.53,.17]);
+        this.mesh(group,'box',iron,[0,1.24,.227],[.08,.53,.014]);
+        this.mesh(group,'box',bone,[0,1.46,.236],[.28,.04,.018]);
+        for(const y of [.2,2.77])this.mesh(group,'box',stone,[0,y,.08],[1.13,.17,.16]);
+      }else{
+        for(let row=0;row<3;row++){
+          const y=.65+row*.69;this.mesh(group,'box',dark,[0,y,.045],[1.25,.51,.07]);
+          this.mesh(group,'box',stone,[0,y-.27,.09],[1.4,.09,.18]);
+          for(let j=0;j<3;j++){
+            const x=(j-1)*.4;this.mesh(group,'sphere',bone,[x,y-.03,.12],[.2,.22,.15]);
+            for(const side of [-1,1])this.mesh(group,'box',dark,[x+side*.043,y-.015,.205],[.038,.039,.013]);
+          }
+        }
+      }
+      for(let i=0;i<6;i++)this.mesh(group,'box',bone,[(i-2.5)*.18,.035+(i%2)*.015,.11],[.19,.035,.045],[0,i*.79,.13]);
+    }else if(p.theme===1){
+      // Splintered storage remains, flattened against the masonry rather than
+      // presenting another lootable chest or blocking a passage.
+      for(let i=0;i<7;i++)this.mesh(group,'box',this.woodMaterial,[(i-3)*.15,.31+(i%3)*.045,.08],[.11,.48+(i%3)*.12,.12],[0,0,(i-3)*.035]);
+      for(const y of [.15,.56])this.mesh(group,'box',iron,[0,y,.16],[1.09,.045,.025]);
+      this.mesh(group,'box',this.woodMaterial,[.04,.41,.17],[.87,.085,.075],[0,0,.27]);
+      if(p.variant===0){
+        this.mesh(group,'box',iron,[0,2.1,.06],[1.25,.1,.12]);
+        for(let i=0;i<3;i++){
+          const x=(i-1)*.34;this.mesh(group,'box',this.woodMaterial,[x,1.75,.13],[.045,.63,.045],[0,0,(i-1)*.1]);
+          this.mesh(group,'box',iron,[x,1.98,.14],[.19,.14,.05]);
+        }
+      }else{
+        const banner=new THREE.Group();banner.position.set(0,3.04,.1);group.add(banner);
+        this.mesh(group,'box',iron,[0,3.09,.1],[1.1,.045,.045]);
+        for(let i=0;i<6;i++)this.mesh(banner,'box',cloth,[(i-2.5)*.14,-.63+Math.abs(i-2.5)*.03,0],[.145,1.38-Math.abs(i-2.5)*.08,.035]);
+        this.mesh(banner,'box',this.material(0x8c809b,0,.9),[0,-.52,.025],[.035,.53,.012]);
+        this.mesh(banner,'box',this.material(0x8c809b,0,.9),[0,-.42,.025],[.31,.035,.012]);
+        animate('hanging',banner,{amplitude:.018});
+      }
+    }else if(p.theme===2){
+      for(let i=0;i<5;i++)this.mesh(group,'box',stone,[0,.34+i*.47,.07],[.82-i*.09,.44,.14]);
+      const rune=this.material(0x7e6f9c,0,.85,0x413459);
       for(const side of [-1,1]){
-        this.mesh(group,'box',iron,[side*.43,2.87,.07],[.15,.23,.12]);
-        for(let i=0;i<13;i++)this.mesh(group,'torus',iron,[side*(.43+Math.sin(i*.2)*.05),2.78-i*.087,.16],[.071,.12,.071],[0,i%2*Math.PI/2,0]);
-        this.mesh(group,'torus',bronze,[side*.47,1.58,.15],[.2,.2,.16]);
+        this.mesh(group,'box',rune,[side*.12,1.75,.156],[.047,.37,.017],[0,0,side*.42]);
+        this.mesh(group,'box',rune,[side*.1,2.05,.156],[.034,.22,.017],[0,0,-side*.52]);
       }
+      this.features.push({type:'rune',material:rune});
+      for(let i=0;i<4;i++){
+        const mote=this.mesh(group,'box',this.material(0x8f87b0,0,.9,0x53426b),[0,1.65,.25],[.013,.013,.013]);
+        animate('wisp',mote,{index:i});
+      }
+      if(p.variant===2)for(const side of [-1,1])this.mesh(group,'box',dark,[side*.42,1.47,.045],[.1,2.27,.08]);
     }else{
-      this.mesh(group,'cylinder',this.wallMaterial,[0,2.3,.045],[1.15,.06,1.15],[Math.PI/2,0,0]);
-      this.mesh(group,'torus',bronze,[0,2.3,.085],[.64,.64,.13]);
-      for(let i=0;i<12;i++){
-        const a=i*Math.PI/6;this.bone(group,[Math.sin(a)*.37,2.3+Math.cos(a)*.37,.085],[Math.sin(a)*.5,2.3+Math.cos(a)*.5,.085],.016,bronze);
+      const leaf=this.material(0x364c4c,0,.97),stem=this.material(0x38434d,0,1);
+      const roots=new THREE.Group();roots.position.set(0,3.34,.1);group.add(roots);
+      for(let i=0;i<5;i++){
+        const x=(i-2)*.19,len=.65+hash(i,p.cellX,p.cellY)*1.15;
+        this.mesh(roots,'box',stem,[x,-len/2,0],[.035,len,.035],[0,0,Math.sin(i)*.12]);
+        for(let j=0;j<3;j++)this.mesh(roots,'box',leaf,[x+(j%2?.06:-.06),-.25-j*len*.22,.04],[.12,.075,.035],[0,0,j%2?.6:-.6]);
       }
-      this.mesh(group,'gem',bronze,[0,2.3,.09],[.23,.3,.025]);
+      animate('hanging',roots,{amplitude:.012});
+      for(let i=0;i<5;i++){
+        const x=(i-2)*.19,h=.06+(i%3)*.035;
+        this.mesh(group,'box',bone,[x,h/2,.13],[.025,h,.025]);
+        this.mesh(group,'sphere',this.material(0x647e85,0,.9,0x10252b),[x,h,.13],[.12,.052,.1]);
+      }
+      const water=this.material(0x61778f,.15,.4,0x121d2a);
+      for(let i=0;i<3;i++){
+        const drop=this.mesh(group,'box',water,[(i-1)*.14,2,.17],[.012,.08,.008]);animate('trickle',drop,{index:i});
+      }
+      this.mesh(group,'box',this.material(0x242e40,.18,.32),[0,.008,.18],[.82,.012,.35]);
+    }
+    if(p.variant===2){
+      const chain=new THREE.Group();chain.position.set(.56,3.45,.12);group.add(chain);
+      for(let i=0;i<8;i++)this.mesh(chain,'torus',iron,[0,-i*.083,0],[.075,.11,.06],[0,i%2*Math.PI/2,0]);
+      animate('hanging',chain,{amplitude:.025});
+    }
+  }
+
+  _batchDressing(){
+    const batches=new Map(),roots=this.world.children.filter(o=>o.userData.dressing);
+    this.world.updateMatrixWorld(true);
+    for(const root of roots)root.traverse(mesh=>{
+      if(!mesh.isMesh)return;
+      for(let p=mesh;p&&p!==this.world;p=p.parent)if(p.userData.decorativeMotion)return;
+      const key=mesh.geometry.uuid+mesh.material.uuid;
+      if(!batches.has(key))batches.set(key,[]);batches.get(key).push(mesh);
+    });
+    for(const meshes of batches.values()){
+      if(meshes.length<3)continue;
+      const first=meshes[0],batch=new THREE.InstancedMesh(first.geometry,first.material,meshes.length);
+      meshes.forEach((mesh,i)=>{batch.setMatrixAt(i,mesh.matrixWorld);mesh.removeFromParent();});
+      batch.castShadow=batch.receiveShadow=true;batch.computeBoundingSphere();batch.name='dungeon-dressing-batch';this.world.add(batch);
     }
   }
 
@@ -1091,7 +1153,7 @@ export class DungeonRenderer {
     const look=new THREE.Vector3();this.camera.getWorldDirection(look);this.headlight.target.position.copy(this.camera.position).addScaledVector(look,6);
     const blind=!!this.snapshot?.player?.blind,ease=1-Math.exp(-dt*5);
     this.lantern.intensity=THREE.MathUtils.lerp(this.lantern.intensity,blind?0:17,ease);
-    this.headlight.intensity=THREE.MathUtils.lerp(this.headlight.intensity,blind?0:10,ease);
+    this.headlight.intensity=THREE.MathUtils.lerp(this.headlight.intensity,blind?0:13,ease);
     this.scene.fog.density=THREE.MathUtils.lerp(this.scene.fog.density,blind?.9:.043,ease);
     const nearby=this.torches.filter(t=>t.point.distanceToSquared(this.camera.position)<625&&this.collision.lineClear({x:this.camera.position.x,z:this.camera.position.z},{x:t.point.x,z:t.point.z},.01)).sort((a,b)=>a.point.distanceToSquared(this.camera.position)-b.point.distanceToSquared(this.camera.position)).slice(0,7);
     const claimed=new Set(this.torchLights.map(l=>l.userData.torch).filter(t=>nearby.includes(t)));
@@ -1102,13 +1164,13 @@ export class DungeonRenderer {
         if(light.intensity<.08){torch=nearby.find(t=>!claimed.has(t));light.userData.torch=torch;if(torch){claimed.add(torch);light.position.copy(torch.point);}}
         else return;
       }
-      if(torch){const flicker=18+Math.sin(this.time*2.1+torch.phase)*.8+Math.sin(this.time*3.7+torch.phase)*.4;light.intensity=THREE.MathUtils.lerp(light.intensity,flicker,ease);}
+      if(torch){const flicker=11+Math.sin(this.time*2.1+torch.phase)*.45+Math.sin(this.time*3.7+torch.phase)*.2;light.intensity=THREE.MathUtils.lerp(light.intensity,flicker,ease);}
     });
     const localWarmth=this.torchLights.reduce((sum,l)=>sum+l.intensity/(1+l.position.distanceToSquared(this.camera.position)),0);
-    this.viewLamp.intensity=THREE.MathUtils.lerp(this.viewLamp.intensity,blind?0:5.5+Math.min(6,localWarmth),ease);
-    this.viewFill.intensity=THREE.MathUtils.lerp(this.viewFill.intensity,blind?.025:.5,ease);
-    this.viewScene.environmentIntensity=THREE.MathUtils.lerp(this.viewScene.environmentIntensity,blind?0:.25+Math.min(.22,localWarmth*.045),ease);
-    this.scene.environmentIntensity=THREE.MathUtils.lerp(this.scene.environmentIntensity,blind?0:.045,ease);
+    this.viewLamp.intensity=THREE.MathUtils.lerp(this.viewLamp.intensity,blind?0:2.7+Math.min(1.3,localWarmth*.3),ease);
+    this.viewFill.intensity=THREE.MathUtils.lerp(this.viewFill.intensity,blind?.025:.3,ease);
+    this.viewScene.environmentIntensity=THREE.MathUtils.lerp(this.viewScene.environmentIntensity,blind?0:.1+Math.min(.08,localWarmth*.02),ease);
+    this.scene.environmentIntensity=THREE.MathUtils.lerp(this.scene.environmentIntensity,blind?0:.055,ease);
     const dust=this.motes.material.uniforms;dust.time.value=this.time;dust.eye.value.copy(this.camera.position);dust.blind.value=blind?1:0;dust.height.value=this.canvas.height;
     this.torchLights.forEach((l,i)=>{dust.lamps.value[i].copy(l.position);dust.power.value[i]=l.intensity;});
     for(const torch of this.torches){torch.flame.scale.set(1+Math.sin(this.time*5+torch.phase)*.06,1+Math.sin(this.time*3+torch.phase)*.09,1);torch.flame.rotation.z=Math.sin(this.time*2+torch.phase)*.04;}
@@ -1124,19 +1186,19 @@ export class DungeonRenderer {
       (g.userData.wings||[]).forEach((wing,i)=>wing.rotation.z=Math.sin(this.time*9+entity.phase)*.45*(i?1:-1));
       if(g.userData.slime)body.scale.y=1+Math.sin(this.time*2+entity.phase)*.08;
     }
-    for(const feature of this.features)if(feature.type==='fountain')feature.group.rotation.y=this.time*.13;
+    for(const feature of this.features){
+      const t=this.time,phase=feature.phase||0,g=feature.group;
+      if(feature.type==='fountain')g.rotation.y=t*.13;
+      else if(feature.type==='hanging')g.rotation.z=Math.sin(t*.61+phase)*feature.amplitude+Math.sin(t*1.1+phase)*feature.amplitude*.2;
+      else if(feature.type==='trickle'){g.position.y=2.65-((t*.36+feature.index*.31+phase)%1)*2.58;g.visible=g.position.y>.07;}
+      else if(feature.type==='wisp'){const a=t*.18+phase+feature.index*1.57;g.position.set(Math.sin(a)*.23,1.62+Math.cos(a*.7)*.31,.25+Math.cos(a)*.08);}
+      else if(feature.type==='rune')feature.material.emissiveIntensity=.24+Math.sin(t*.55)*.09;
+    }
     const swing=swingPose(this.time-this.attackTime,this.weaponName||'sword');
     this.rightHand.position.set(swing[0]+Math.sin(this.bobPhase*.5)*.012*this.motionBlend,swing[1]+bob,swing[2]);
     this.rightHand.rotation.set(swing[3],swing[4],swing[5]);
-    this.leftHand.position.set(this.guarding?-.15:-.49,this.guarding?-.17:(this.hasShield?-.43:-.52)+bob,-.95);
+    this.leftHand.position.set(this.guarding?-.15:-.49,this.guarding?-.17:(this.hasShield?-.59:-.7)+bob,-.95);
     this.leftHand.rotation.set(.1,.15,this.hasShield?-.12:.45);
-    for(const hand of [this.rightHand,this.leftHand]){
-      hand.updateMatrixWorld(true);
-      const wrist=new THREE.Vector3(.015,-.35,.15).applyMatrix4(hand.matrixWorld),side=hand===this.rightHand?1:-1;
-      const elbow=new THREE.Vector3(side*.94,-1.02,-.2),arm=hand.userData.forearm;
-      arm.position.copy(wrist).add(elbow).multiplyScalar(.5);arm.scale.set(.145,wrist.distanceTo(elbow),.145);
-      arm.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),elbow.sub(wrist).normalize());
-    }
     for(let i=this.effects.length-1;i>=0;i--){const e=this.effects[i];e.life-=dt;e.group.position.addScaledVector(e.direction,dt*16);if(e.life<=0){this.scene.remove(e.group);this.effects.splice(i,1);}}
     this.renderer.clear();this.renderer.render(this.scene,this.camera);
     if(this.snapshot?.levelId!=='title'){this.renderer.clearDepth();this.renderer.render(this.viewScene,this.viewCamera);}

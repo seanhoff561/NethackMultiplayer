@@ -31,6 +31,21 @@ try{
   assert.equal(await page.locator('#minimap,.minimap-wrap,#dungeon-map').count(),0);
   assert.equal(await page.evaluate(()=>window.__audio.state),'running');
   await page.locator('#mouse-capture').click();
+  await page.waitForFunction(()=>!!document.pointerLockElement);
+  await page.evaluate(()=>document.exitPointerLock());await page.locator('.settings-panel').waitFor();
+  assert.equal(await page.evaluate(()=>!!document.pointerLockElement),false);
+  const menuTurn=await page.evaluate(()=>window.descent.state.player.turn);await page.waitForTimeout(1000);
+  assert.ok(await page.evaluate(()=>window.descent.state.player.turn)>menuTurn,'Escape menu keeps the dungeon alive');
+  await page.screenshot({path:'test-results/dark-menu.png'});
+  await page.locator('[data-settings-section=controls]').click();await page.getByText('Select the displayed choice; they never move your character',{exact:true}).waitFor();
+  await page.screenshot({path:'test-results/dark-controls.png'});
+  await page.keyboard.press('Escape');assert.equal(await page.locator('[data-settings-section=settings]').getAttribute('aria-current'),'page');
+  await page.locator('[data-settings-section=guide]').click();await page.getByRole('heading',{name:'Entering commands',exact:true}).waitFor();
+  await page.locator('.settings-panel [data-action=commands]').click();await page.locator('#command-search').fill('inventory');await page.keyboard.press('Enter');await page.locator('.inventory-panel').waitFor();
+  await page.keyboard.press('Escape');await page.locator('.settings-panel').waitFor();await page.locator('[data-action=resume]').click();
+  await page.waitForFunction(()=>!!document.pointerLockElement);await page.keyboard.press('Escape');await page.locator('.settings-panel').waitFor();
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.game-panel'));
+  results.push('Escape and browser pointer unlock open one live menu; controls, guide, command search and resume work');
   await page.keyboard.down('w');await page.keyboard.down('d');await page.waitForTimeout(120);await page.keyboard.up('d');await page.waitForTimeout(90);
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='input').at(-1).forward),1);
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='input').at(-1).strafe),0);await page.keyboard.up('w');
@@ -38,8 +53,8 @@ try{
   assert.equal(await page.locator('[data-inventory-action="d"]').isDisabled(),true);
   const turn=await page.evaluate(()=>window.descent.state.player.turn);await page.waitForTimeout(1000);assert.ok(await page.evaluate(()=>window.descent.state.player.turn)>turn);
   await page.keyboard.down('w');await page.keyboard.press('Escape');await page.waitForTimeout(130);
-  assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='input').at(-1).forward),0,'held inventory letter cannot start walking after close');
-  await page.keyboard.up('w');results.push('Movement releases per key; inventory remains live and held accelerators cannot leak');
+  assert.equal(await page.evaluate(()=>(window.__sent.filter(e=>e.type==='input'||e.type==='release').at(-1).forward||0)),0,'held inventory letter cannot start walking after close');
+  await page.keyboard.up('w');await page.locator('[data-action=resume]').click();results.push('Movement releases per key; inventory remains live and held accelerators cannot leak');
   const prior=await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.melee).length);
   await page.keyboard.down('Space');await page.keyboard.down('Space');await page.waitForTimeout(650);await page.keyboard.up('Space');
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.melee).length),prior+1);
@@ -71,7 +86,7 @@ try{
   await page.keyboard.press('b');await page.locator('.prompt-panel,.menu-panel').waitFor();await page.keyboard.press('Escape');
   results.push('B opens wand selection independently from Z spell selection');
   // Isolated presentation fixture: native gameplay above, controlled geometry below.
-  await page.keyboard.press('Escape');await page.evaluate(()=>{window.__fixture=true;window.requestAnimationFrame=()=>0;});await page.waitForTimeout(80);
+  await page.locator('[data-action=resume]').click();await page.evaluate(()=>{window.__fixture=true;window.requestAnimationFrame=()=>0;});await page.waitForTimeout(80);
   await page.keyboard.press('i');
   const tracked=await page.evaluate(()=>window.descent.renderer.snapshot.inventory[0]);
   await page.keyboard.press(tracked.key);
@@ -85,7 +100,7 @@ try{
     window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
   },tracked.id);
   assert.equal(await page.locator('.inventory-item.selected').count(),0);assert.equal(await page.locator('[data-inventory-action="d"]').isDisabled(),true);
-  await page.keyboard.press('Escape');results.push('Live inventory fixture: letter reassignment preserves selection; disappearing items clear it');
+  await page.keyboard.press('Escape');await page.locator('[data-action=resume]').click();results.push('Live inventory fixture: letter reassignment preserves selection; disappearing items clear it');
   await page.evaluate(()=>{
     const r=window.descent.renderer,tiles=[];
     for(let x=0;x<9;x++)for(let y=0;y<10;y++)tiles.push({x,y,type:x===0||x===8||y===0||y===9?'wall':'floor'});

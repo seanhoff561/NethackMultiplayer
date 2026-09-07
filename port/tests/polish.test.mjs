@@ -77,8 +77,8 @@ test('floor pile objects have distinct positions and interaction cannot reach th
   assert.equal(targetLoot(items,{x:1,z:1},0,world),null);
   world.setTiles(tiles.map(t=>t.x===2&&t.y===2?{...t,type:'wall'}:t));assert.equal(targetLoot(items,body,0,world),null);
 });
-test('slash crosses the screen, thrust extends forward, both settle without a jump',()=>{
-  const rest=swingPose(0);assert.ok(swingPose(.27)[0]<-.3);assert.ok(swingPose(.25,'spear')[2]<-1.5);
+test('slash cuts down and forward, thrust extends, both settle without a jump',()=>{
+  const rest=swingPose(0);assert.ok(swingPose(.13)[3]>.35);assert.ok(swingPose(.28)[3]<-1.5);assert.ok(swingPose(.36)[1]<rest[1]);assert.ok(swingPose(.28)[2]<rest[2]);assert.ok(swingPose(.25,'spear')[2]<-1.5);
   assert.deepEqual(swingPose(.54),rest);assert.deepEqual(swingPose(100),rest);
   assert.ok(Math.max(...swingPose(.5399).map((v,i)=>Math.abs(v-rest[i])))<.001);
 });

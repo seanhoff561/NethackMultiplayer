@@ -7,7 +7,7 @@ export const BINDINGS = Object.freeze({
   KeyF:'fire',KeyT:'throw',KeyZ:'cast',KeyB:'wand',KeyQ:'quaff',KeyR:'read',
   KeyX:'swap',KeyG:'pickup',KeyK:'kick',KeyP:'pray',KeyV:'search',
   Digit1:'wield',Digit2:'cast',Digit3:'wand',Digit4:'quaff',Digit5:'apply',Digit6:'eat',
-  F10:'fullscreen',Escape:'release',
+  F10:'fullscreen',Escape:'settings',
 });
 export const COMMAND_KEYS={fire:'f',throw:'t',cast:'Z',wand:'z',quaff:'q',read:'r',swap:'x',pickup:',',kick:'\x04',pray:'#pray',search:'s',wield:'w',apply:'a',eat:'e'};
 const continuous=new Set(['forward','back','left','right','turnLeft','turnRight','run','crouch']);

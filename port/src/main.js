@@ -4,7 +4,7 @@ import { DungeonAudio } from './audio.js';
 import { GameUI } from './ui.js';
 import {targetLoot} from './loot.js';
 import {GameInput,COMMAND_KEYS} from './input.js';
-let input,actionSequence=0;
+let input,actionSequence=0,suppressUnlockMenu=false;
 const pendingActions=new Map();
 import {CollisionWorld,integratePlayer,CELL} from './spatial.js';
 let collision=new CollisionWorld(),body=null,motion=null,collisionSignature='';
@@ -35,12 +35,21 @@ const ui=new GameUI({
   onClose:()=>{pendingPrompt=null;send({type:'cancel'});input?.clear();capture();},
   onPanel:()=>unlock(),
   onFullscreen:()=>toggleFullscreen(),
+  onEscape:()=>openGameMenu(),
 });
 audio.setVolume?.(settings.volume);
 
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
-function unlock(){if(document.pointerLockElement)document.exitPointerLock();input?.clear();send({type:'release'});}
+function unlock(){if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
 function capture(){if(playing&&!ui.hasPanel){canvas.focus({preventScroll:true});canvas.requestPointerLock?.().catch?.(()=>ui.setPointerLocked(false));}}
+function openGameMenu(){
+  if(!playing)return;
+  if(ui.panel?.type==='settings'){
+    if(ui.panel.section!=='settings')ui.showSettings();else ui.closePanels();
+    return;
+  }
+  pendingPrompt=null;send({type:'cancel'});ui.showSettings();
+}
 async function toggleFullscreen(){
   try {if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}
   catch{ui.message('Fullscreen is unavailable here. Open the game window or press F11 in your browser.');}
@@ -87,7 +96,7 @@ function handleAction(name){
   else if(name==='inventory')command('i');
   else if(name==='commands')command('#commands');
   else if(name==='interact')interact();
-  else if(name==='release')unlock();
+  else if(name==='settings')openGameMenu();
   else if(COMMAND_KEYS[name])command(COMMAND_KEYS[name]);
 }
 input=new GameInput({context:()=>ui.panel?'menu':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
@@ -192,7 +201,16 @@ function normalize(snapshot){
 }
 function headingName(angle){return ['N','NW','W','SW','S','SE','E','NE'][((Math.round(angle/(Math.PI/4))%8)+8)%8];}
 
-document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement){input?.clear();send({type:'release'});}document.body.classList.toggle('mouse-captured',!!document.pointerLockElement);ui.setPointerLocked(!!document.pointerLockElement);});
+document.addEventListener('pointerlockchange',()=>{
+  const locked=document.pointerLockElement===canvas;
+  if(!locked){
+    input?.clear();send({type:'release'});
+    // Browsers can consume Escape before JavaScript receives keydown.
+    if(playing&&!ui.panel&&!suppressUnlockMenu)ui.showSettings();
+  }
+  suppressUnlockMenu=false;
+  document.body.classList.toggle('mouse-captured',locked);ui.setPointerLocked(locked);
+});
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas){yaw-=e.movementX*.0022*settings.sensitivity;pitch=Math.max(-1.15,Math.min(1.15,pitch-e.movementY*.0022*settings.sensitivity));}});
 canvas.addEventListener('click',()=>{audio.start();if(document.pointerLockElement!==canvas)capture();});
 canvas.addEventListener('mousedown',e=>{
