@@ -11,6 +11,7 @@ export function encodeInput(input) {
   if(input.kind==='pace')return `p ${Math.max(250,Math.min(3000,Number(input.value)||800))}\n`;
   if(input.kind==='position'||input.kind==='actor')return `${input.kind==='position'?'v':'n'} ${(input.value||[]).map(Number).filter(Number.isFinite).join(' ')}\n`;
   if(input.kind==='melee')return `a ${Number(input.value)||0}\n`;
+  if(input.kind==='pickup')return `g ${Number(input.value)||0}\n`;
   return `k ${typeof input.value==='number'?input.value:String(input.value||'\x1b').charCodeAt(0)}\n`;
 }
 export function cancelInput(request) {
@@ -96,7 +97,7 @@ export class NativeSession extends EventEmitter {
     if(!this.ready || this.closed)return false;
     if(!action.idle) {this.virtualPrompt=null;this.emit('clearPrompt');}
     const key=action.key || '.';
-    const initial=action.melee!==undefined?{kind:'melee',value:action.melee}:{kind:'key',value:key.startsWith('#')?'#':key};
+    const initial=action.pickup!==undefined?{kind:'pickup',value:action.pickup}:action.melee!==undefined?{kind:'melee',value:action.melee}:{kind:'key',value:key.startsWith('#')?'#':key};
     const steps=[{input:initial}];
     if(key.startsWith('#')&&key.length>1)steps.push({input:{kind:'extcmd',value:key.slice(1).trim()}});
     else for(const char of key.slice(1))steps.push({input:{kind:'key',value:char}});

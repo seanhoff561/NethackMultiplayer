@@ -21,5 +21,13 @@ cl %BFLAGS% /Fo..\port\engine\build\mhitu.o mhitu.c
 if errorlevel 1 exit /b 1
 cl %BFLAGS% /Fo..\port\engine\build\dogmove.o dogmove.c
 if errorlevel 1 exit /b 1
-link /NOLOGO /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /STACK:8388608 /OUT:..\port\engine\bin\nethack-engine-spatial.exe @..\port\engine\engine.lnk ..\lib\lua5.4.8-x64-static.lib objtty\x64\hacklib-x64-static.lib kernel32.lib advapi32.lib gdi32.lib ole32.lib Shell32.lib UserEnv.lib dbghelp.lib Rpcrt4.lib user32.lib winmm.lib bcrypt.lib
+cl %BFLAGS% /Fo..\port\engine\build\mon.o mon.c
+if errorlevel 1 exit /b 1
+cl %BFLAGS% /Fo..\port\engine\build\pickup.o pickup.c
+if errorlevel 1 exit /b 1
+cl %BFLAGS% /Fo..\port\engine\build\dothrow.o dothrow.c
+if errorlevel 1 exit /b 1
+cl %BFLAGS% /Fo..\port\engine\build\zap.o zap.c
+if errorlevel 1 exit /b 1
+link /NOLOGO /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /STACK:8388608 /OUT:..\port\engine\bin\nethack-engine-polished.exe @..\port\engine\engine.lnk ..\lib\lua5.4.8-x64-static.lib objtty\x64\hacklib-x64-static.lib kernel32.lib advapi32.lib gdi32.lib ole32.lib Shell32.lib UserEnv.lib dbghelp.lib Rpcrt4.lib user32.lib winmm.lib bcrypt.lib
 

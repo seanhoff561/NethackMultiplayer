@@ -7,6 +7,7 @@ export class DungeonAudio {
     this.lastStep = 0;
     this.nextDrip = 0;
     this.time = 0;
+    this.nextCreak=8;this.nextEmber=0;
     this.volume = .55;
   }
 
@@ -34,7 +35,7 @@ export class DungeonAudio {
         }
       }
       this.reverb.buffer = impulse;
-      const wet = this.context.createGain();
+      const wet = this.context.createGain();this.wet=wet;
       wet.gain.value = 0.25;
       this.reverb.connect(wet);
       wet.connect(this.master);
@@ -53,8 +54,8 @@ export class DungeonAudio {
       const airFilter = this.context.createBiquadFilter();
       airFilter.type = 'lowpass';
       airFilter.frequency.value = 310;
-      const airGain = this.context.createGain();
-      airGain.gain.value = 0.12;
+      const airGain = this.context.createGain();this.airGain=airGain;
+      airGain.gain.value = 0;
       this.air.connect(airFilter);
       airFilter.connect(airGain);
       airGain.connect(this.master);
@@ -63,7 +64,7 @@ export class DungeonAudio {
     if (this.context.state === 'suspended') await this.context.resume();
   }
 
-  _tone(start, duration, from, to, volume, type = 'sine', wet = true) {
+  _tone(start, duration, from, to, volume, type = 'sine', wet = true, pan = 0) {
     if (!this.context || !this.enabled || this.context.state !== 'running') return;
     const at = this.context.currentTime + start;
     const oscillator = this.context.createOscillator();
@@ -75,13 +76,12 @@ export class DungeonAudio {
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), at + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
     oscillator.connect(gain);
-    gain.connect(this.master);
-    if (wet) gain.connect(this.reverb);
+    this._route(gain,pan,wet);
     oscillator.start(at);
     oscillator.stop(at + duration + 0.02);
   }
 
-  _noise(duration, volume, frequency, type = 'lowpass', start = 0) {
+  _noise(duration, volume, frequency, type = 'lowpass', start = 0, pan = 0) {
     if (!this.context || !this.enabled || this.context.state !== 'running') return;
     const length = Math.ceil(this.context.sampleRate * duration);
     const buffer = this.context.createBuffer(1, length, this.context.sampleRate);
@@ -96,19 +96,25 @@ export class DungeonAudio {
     gain.gain.value = volume;
     source.connect(filter);
     filter.connect(gain);
-    gain.connect(this.master);
-    gain.connect(this.reverb);
+    this._route(gain,pan,true);
     source.start(this.context.currentTime + start);
   }
 
-  step(running = false) {
+  _route(gain,pan,wet){
+    const panner=this.context.createStereoPanner();panner.pan.value=Math.max(-1,Math.min(1,pan));
+    gain.connect(panner);panner.connect(this.master);if(wet)panner.connect(this.reverb);
+  }
+
+  step(running = false, terrain = 'floor', crouch = false) {
     if (!this.context) return;
     const now = this.context.currentTime;
     if (now - this.lastStep < (running ? 0.22 : 0.33)) return;
     this.lastStep = now;
-    this._noise(0.12, running ? 0.28 : 0.18, 510 + Math.random() * 250);
-    this._tone(0, 0.13, 100 + Math.random() * 35, 43, running ? 0.27 : 0.17, 'sine');
-    this._noise(0.08, 0.035, 3100, 'highpass', 0.045);
+    const volume=crouch?.45:1,pan=(this.footSide=!this.footSide)?.12:-.12;
+    this._noise(0.12, (running ? 0.28 : 0.18)*volume, 510 + Math.random() * 250,'lowpass',0,pan);
+    if(terrain==='water')this._noise(.25,.22*volume,1700,'bandpass',.02,pan);
+    this._tone(0, 0.13, 100 + Math.random() * 35, 43, (running ? 0.27 : 0.17)*volume, 'sine',true,pan);
+    this._noise(0.08, 0.035*volume, 3100, 'highpass', 0.045,pan);
   }
 
   attack(kind = 'melee') {
@@ -118,8 +124,14 @@ export class DungeonAudio {
       this._tone(0, 0.13, 250, 80, 0.16, 'triangle');
       return;
     }
-    this._noise(0.27, 0.32, 1600, 'bandpass');
-    this._tone(0.015, 0.16, 280, 95, 0.065, 'triangle', false);
+    this._noise(.21,.3,1850,'bandpass',.11,-.18);
+    this._noise(.13,.12,900,'bandpass',.22,.25);
+    this._tone(.11,.19,230,70,.04,'triangle',false);
+  }
+
+  impact(){
+    this._noise(.1,.36,750,'lowpass');this._noise(.055,.17,2900,'highpass');
+    this._tone(0,.16,135,50,.24,'sine');this._tone(.015,.22,1850,1300,.025,'sine');
   }
 
   hit() {
@@ -136,7 +148,9 @@ export class DungeonAudio {
     }
   }
 
-  pickup() {
+  pickup(name = '') {
+    this._noise(.16,.1,1150,'bandpass');
+    if(/gold|coin|zorkmid|sword|shield/.test(name))for(let i=0;i<3;i++)this._tone(i*.04,.18,1800+i*390,1650+i*390,.027,'sine',true,(i-1)*.2);
     this._tone(0, 0.2, 740, 880, 0.07, 'sine');
     this._tone(0.08, 0.28, 1110, 1180, 0.055, 'sine');
   }
@@ -146,12 +160,35 @@ export class DungeonAudio {
     this._tone(0, 0.35, 170, 100, 0.055, 'sawtooth');
   }
 
-  ambient(dt = 0.016) {
-    this.time += dt;
-    if (this.time < this.nextDrip) return;
-    this.nextDrip = this.time + 5 + Math.random() * 11;
-    this._tone(0, 0.13, 1450 + Math.random() * 300, 540, 0.015, 'sine');
-    this._tone(0.2, 0.1, 1100, 470, 0.005, 'sine');
+  ambient(dt = .016,{playing=false,pose={},torches=[],water=false}={}){
+    this.time+=dt;if(!this.context||!this.enabled||this.context.state!=='running')return;
+    const now=this.context.currentTime;
+    this.airGain.gain.setTargetAtTime(playing?.2:.025,now,1.5);
+    if(!playing)return;
+    if(this.time>this.nextDrip){
+      this.nextDrip=this.time+(water?1.5:4)+Math.random()*(water?4:10);
+      const pan=Math.random()*1.6-.8,volume=water?.032:.016,frequency=1450+Math.random()*600;
+      this._tone(0,.12,frequency,510,volume,'sine',true,pan);
+      this._tone(.18,.19,frequency*.8,450,volume*.3,'sine',true,pan*.7);
+      this._noise(.1,volume*.6,2800,'bandpass',.03,pan);
+    }
+    if(this.time>this.nextCreak){
+      this.nextCreak=this.time+15+Math.random()*22;
+      const pan=Math.random()*1.7-.85;
+      this._noise(1.5,.025,220,'bandpass',0,pan);
+      this._tone(0,1.4,49+Math.random()*13,37,.018,'sine',true,pan);
+      this._tone(.3,.7,185,116,.006,'triangle',true,pan);
+    }
+    if(this.time>this.nextEmber){
+      this.nextEmber=this.time+.35+Math.random()*.9;
+      let nearest=null,distance=Infinity;
+      for(const torch of torches){const d=Math.hypot(torch.point.x-(pose.x||0)*3,torch.point.z-(pose.y||0)*3);if(d<distance){distance=d;nearest=torch;}}
+      if(nearest&&distance<9){
+        const dx=nearest.point.x-pose.x*3,dz=nearest.point.z-pose.y*3;
+        const pan=(Math.cos(pose.yaw||0)*dx-Math.sin(pose.yaw||0)*dz)/Math.max(1,distance);
+        this._noise(.04+Math.random()*.055,.055/(1+distance*.4),1800+Math.random()*2000,'highpass',0,pan);
+      }
+    }
   }
 
   setVolume(value) {

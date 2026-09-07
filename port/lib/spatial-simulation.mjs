@@ -111,8 +111,8 @@ export class SpatialSimulation {
       session.write({kind:'actor',value:[a.id,a.x,a.z,a.y,inReach&&this.world.lineClear(a,p,.04)?1:0]});
     }
   }
-  melee() {
-    if(!this.player)return null;const yaw=this.input.yaw||0,p=this.player;
+  melee(aimYaw) {
+    if(!this.player)return null;const yaw=aimYaw??this.input.yaw??0,p=this.player;
     return [...this.actors.values()].filter(a=>{
       const dx=a.x-p.x,dz=a.z-p.z,d=Math.hypot(dx,dz);
       return d<1.85&&Math.abs(a.y-p.y)<1.4&&(-Math.sin(yaw)*dx-Math.cos(yaw)*dz)/Math.max(.001,d)>.55&&this.world.lineClear(p,a,.05);

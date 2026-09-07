@@ -1938,6 +1938,12 @@ pick_obj(struct obj *otmp)
     }
 
     result = addinv(otmp);
+#ifdef DESCENT_SPATIAL
+    {
+        extern void descent_item_picked_up(struct obj *);
+        descent_item_picked_up(result);
+    }
+#endif
     /* if you're taking a shop item from outside the shop, make shk notice */
     if (robshop)
         remote_burglary(ox, oy);

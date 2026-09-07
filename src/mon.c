@@ -3114,6 +3114,11 @@ mondead(struct monst *mtmp)
     if (mtmp->isgd && !grddead(mtmp))
         return;
 
+#ifdef DESCENT_SPATIAL
+    /* Descent, 2026-09-07: report confirmed death after life-saving checks. */
+    { extern void descent_monster_defeated(unsigned);descent_monster_defeated(mtmp->m_id); }
+#endif
+
     mptr = mtmp->data; /* save this for m_detach() */
     /* restore chameleon, lycanthropes to true form at death */
     if (ismnum(mtmp->cham)) {

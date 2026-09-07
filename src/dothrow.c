@@ -1524,6 +1524,12 @@ throwit(
             tethered_weapon = (arw && arw->tethered && (wep_mask & W_WEP) != 0),
             tether_released_msg = FALSE;
 
+#ifdef DESCENT_SPATIAL
+    {
+        extern void descent_player_effect(const char *);
+        descent_player_effect("ranged");
+    }
+#endif
     gn.notonhead = FALSE; /* reset potentially stale value */
     if ((obj->cursed || obj->greased) && (u.dx || u.dy) && !rn2(7)) {
         boolean slipok = TRUE;

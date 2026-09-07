@@ -104,6 +104,7 @@ export class GameUI {
 
   renderShell() {
     this.root.innerHTML = `
+      <div id="damage-flash" class="damage-flash" aria-hidden="true"></div><div id="hit-confirm" class="hit-confirm" aria-hidden="true">×</div>
       <div class="screen-grain" aria-hidden="true"></div>
       <div class="screen-vignette" aria-hidden="true"></div>
       <section class="title-screen" aria-label="New expedition">
@@ -121,31 +122,26 @@ export class GameUI {
             <div class="engine-status" id="engine-status"><span class="status-dot"></span><span>Preparing the dungeon…</span></div>
           </form>
         </div>
-        <footer class="title-bottom"><div class="title-controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>SHIFT</kbd> Run</span><span><kbd>CTRL</kbd> Crouch</span><span><i class="mouse-icon"></i> Look & attack</span></div><div class="title-links"><button type="button" data-action="help">How to play</button><span>·</span><button type="button" data-action="settings">Settings</button></div></footer>
+        <footer class="title-bottom"><div class="title-controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>SHIFT</kbd> Run</span><span><kbd>CTRL</kbd> Crouch</span><span><i class="mouse-icon"></i> Look & attack</span></div><div class="title-links"><button type="button" data-action="fullscreen">Fullscreen</button><span>·</span><button type="button" data-action="help">How to play</button><span>·</span><button type="button" data-action="settings">Settings</button></div></footer>
       </section>
       <section class="game-hud" aria-label="Game status" hidden>
         <div class="hud-top-left"><div class="location-overline">DUNGEONS OF DOOM</div><div class="location-name" id="location-name">The dungeon</div><div class="location-detail" id="location-detail">Depth 1</div></div>
         <div class="compass" aria-label="Facing direction"><span class="compass-side" id="compass-left">W</span><i></i><span class="compass-center" id="compass-heading">N</span><i></i><span class="compass-side" id="compass-right">E</span><b>▼</b></div>
-        <div class="minimap-wrap"><div class="minimap-heading"><span>SURROUNDINGS</span><button data-action="map" title="Show dungeon map" aria-label="Show dungeon map">${icon('map')}</button></div><canvas id="minimap" width="220" height="132" aria-label="Explored dungeon map"></canvas><div class="map-legend"><span><i class="map-player"></i> YOU</span><span><i class="map-stairs"></i> STAIRS</span></div></div>
         <div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div>
-        <div class="live-indicator"><span></span> WORLD IS LIVE</div>
+        <div class="hud-conditions" id="hud-conditions"></div>
         <div class="message-log" id="message-log" role="log" aria-live="polite" aria-relevant="additions"></div>
         <div class="hud-bottom">
-          <div class="player-identity"><div class="player-sigil">${icon('shield')}</div><div><div class="player-name" id="player-name">Adventurer</div><div class="player-class" id="player-class">Knight <span>·</span> Level 1</div></div></div>
           <div class="vital-bars"><div class="vital-row"><span class="vital-label">VITALITY</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">— / —</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">— / —</span></div></div>
-          <div class="player-stats"><div><span>ARMOR</span><b id="armor-value">—</b></div><div><span>GOLD</span><b id="gold-value">0</b></div><div class="condition-stat"><span>CONDITION</span><b id="hunger-value">Ready</b></div></div>
-          <div class="hud-actions"><button data-command="i" title="Inventory (I)">${icon('bag')}<kbd>I</kbd></button><button data-action="commands" title="All commands (Tab)">${icon('scroll')}<kbd>TAB</kbd></button><button data-action="settings" title="Settings">${icon('gear')}</button></div>
+          <div class="hud-actions"><button data-action="fullscreen" id="fullscreen-toggle" title="Fullscreen (F10)" aria-label="Enter fullscreen">⛶</button><button data-command="i" title="Inventory (I)">${icon('bag')}<kbd>I</kbd></button><button data-action="commands" title="All commands (Tab)">${icon('scroll')}<kbd>TAB</kbd></button><button data-action="settings" title="Settings">${icon('gear')}</button></div>
         </div>
-        <nav class="quickslots" aria-label="Quick actions"><button data-command="w" title="Wield a weapon"><kbd>1</kbd>${icon('sword')}<span>Weapon</span></button><button data-command="Z" title="Cast a spell"><kbd>2</kbd>${icon('spark')}<span>Spells</span></button><button data-command="z" title="Zap a wand"><kbd>3</kbd>${icon('spark')}<span>Wands</span></button><button data-command="q" title="Drink a potion"><kbd>4</kbd>${icon('potion')}<span>Potions</span></button><button data-command="a" title="Apply a tool"><kbd>5</kbd>${icon('hand')}<span>Tools</span></button></nav>
-        <div class="hud-control-hint"><span><kbd>E</kbd> Interact</span><span><kbd>F</kbd> Fire</span><span><kbd>TAB</kbd> Commands</span></div>
         <button class="mouse-capture" id="mouse-capture" type="button" hidden>Click to look around <span>ESC releases the mouse</span></button>
       </section>
       <div class="panel-layer" id="panel-layer" hidden></div>
       <div class="toast" id="toast" role="status" hidden></div>
     `;
     this.$ = selector => this.root.querySelector(selector);
-    this.mapContext = this.$('#minimap').getContext('2d');
+
   }
 
   bind() {
@@ -166,14 +162,13 @@ export class GameUI {
       if (command) { this.callbacks.onCommand?.(command.dataset.command); return; }
       const action = e.target.closest('[data-action]')?.dataset.action;
       if (action === 'commands') this.callbacks.onCommand?.('#commands');
+      if (action === 'fullscreen') this.callbacks.onFullscreen?.();
       if (action === 'settings') this.showSettings();
       if (action === 'help') this.showHelp();
       if (action === 'map') this.showMap();
       if (action === 'close') this.cancelPanel();
     });
-    this.keyHandler = e => this.handleKey(e);
-    window.addEventListener('keydown', this.keyHandler, true);
-    this.$('#mouse-capture').addEventListener('click', () => this.callbacks.onClose?.());
+
   }
 
   refreshRole() {
@@ -224,8 +219,17 @@ export class GameUI {
 
   update(snapshot = {}) {
     this.snapshot = snapshot;
+    if(this.panel?.type==='inventory'){
+      const items=snapshot.inventory||[],signature=JSON.stringify(items.map(i=>[i.id,i.key,i.name,i.quantity,i.equipped]));
+      if(signature!==this.panel.inventorySignature){
+        const id=this.panel.selectedId,scroll=this.$('.inventory-list').scrollTop;
+        this.showInventory(items);
+        if(id!==undefined)this.$(`[data-item-id="${id}"]`)?.click();
+        this.$('.inventory-list').scrollTop=scroll;
+      }
+    }
     const p = snapshot.player || {};
-    const set = (selector, value) => { if (value !== undefined && value !== null) this.$(selector).textContent = value; };
+    const set = (selector, value) => { if (value !== undefined && value !== null) {const node=this.$(selector);if(node)node.textContent = value;} };
     set('#player-name', p.name);
     set('#player-class', `${p.role || 'Adventurer'} · Level ${p.level ?? 1}`);
     set('#location-name', p.dungeon || snapshot.dungeon || 'Dungeons of Doom');
@@ -234,7 +238,8 @@ export class GameUI {
     set('#gold-value', Number(p.gold || 0).toLocaleString());
     const hunger = p.conditions?.length ? p.conditions.slice(0,2).join(' · ') : p.hunger === undefined || p.hunger === '' ? 'Ready' : p.hunger;
     set('#hunger-value', capital(hunger));
-    this.$('#hunger-value').classList.toggle('warning', /hungry|weak|faint|starv|burden|stress/i.test(String(hunger)));
+    set('#hud-conditions',p.conditions?.join(' · ')||'');
+    this.$('#hunger-value')?.classList.toggle('warning', /hungry|weak|faint|starv|burden|stress/i.test(String(hunger)));
     for (const [field, maxField, prefix] of [['hp', 'maxHp', 'hp'], ['power', 'maxPower', 'power']]) {
       const current = Number(p[field] || 0), max = Number(p[maxField] || 0);
       set(`#${prefix}-value`, `${current} / ${max}`);
@@ -254,7 +259,6 @@ export class GameUI {
     if (typeof heading === 'number') this.setHeading(heading);
     if (snapshot.interaction !== undefined) this.setInteraction(snapshot.interaction);
     if (snapshot.pointerLocked !== undefined) this.setPointerLocked(snapshot.pointerLocked);
-    this.drawMap(snapshot);
     if (this.panel?.type === 'map') this.drawMap(snapshot, this.$('#large-map'));
   }
 
@@ -281,8 +285,13 @@ export class GameUI {
     this.renderMessages();
   }
 
+  toast(text){const el=this.$('#toast');el.textContent=text;el.hidden=false;clearTimeout(this.toastTimer);this.toastTimer=setTimeout(()=>el.hidden=true,2200);}
+  damage(){const el=this.$('#damage-flash');el.getAnimations().forEach(a=>a.cancel());el.animate([{opacity:.8},{opacity:.25,offset:.3},{opacity:0}],{duration:650,easing:'ease-out'});}
+  confirmHit(){const el=this.$('#hit-confirm');el.getAnimations().forEach(a=>a.cancel());el.animate([{opacity:1,transform:'translate(-50%,-50%) scale(1.2)'},{opacity:0,transform:'translate(-50%,-50%) scale(.8)'}],{duration:280});}
+  setFullscreen(active){this.$('#fullscreen-toggle')?.setAttribute('aria-label',active?'Exit fullscreen':'Enter fullscreen');}
   renderMessages() {
-    this.$('#message-log').innerHTML = this.log.slice(-5).map((m, i, list) => `<div class="log-entry ${i === list.length - 1 ? 'latest' : ''}">${esc(m)}</div>`).join('');
+    const log=this.$('#message-log');log.classList.remove('quiet');clearTimeout(this.messageTimer);this.messageTimer=setTimeout(()=>log.classList.add('quiet'),6500);
+    this.$('#message-log').innerHTML = this.log.slice(-2).map((m, i, list) => `<div class="log-entry ${i === list.length - 1 ? 'latest' : ''}">${esc(m)}</div>`).join('');
   }
 
   drawMap(snapshot = this.snapshot, canvas = this.$('#minimap')) {
@@ -328,6 +337,7 @@ export class GameUI {
   }
 
   openPanel(type, title, body, options = {}) {
+    this.callbacks.onPanel?.();
     if (document.pointerLockElement) document.exitPointerLock();
     this.panel = { type, ...options };
     const layer = this.$('#panel-layer');
@@ -410,14 +420,15 @@ export class GameUI {
       if (!groups.has(category)) groups.set(category, []);
       groups.get(category).push(item);
     }
-    const body = `<div class="inventory-summary"><span>${items.length} possessions</span><span>${Number(this.snapshot?.player?.gold || 0).toLocaleString()} gold pieces</span></div><div class="inventory-list">${items.length ? [...groups].map(([category, list]) => `<div class="menu-section">${esc(capital(category))}</div>${list.map(item => `<button class="inventory-item" data-item-key="${esc(item.key || item.letter || '')}"><kbd>${esc(item.key || item.letter || '·')}</kbd><span>${esc(item.text || item.name || '')}</span>${item.equipped || /being worn|weapon in hand|wielded/i.test(item.text || '') ? '<b class="equipped-label">EQUIPPED</b>' : ''}${item.quantity > 1 ? `<small>×${item.quantity}</small>` : ''}</button>`).join('')}`).join('') : '<p class="empty-state">Your pack is empty.</p>'}</div><div class="inventory-tools"><button data-inventory-action="w">Wield</button><button data-inventory-action="W">Wear</button><button data-inventory-action="a">Apply</button><button data-inventory-action="q">Drink</button><button data-inventory-action="e">Eat</button><button data-inventory-action="r">Read</button><button data-inventory-action="d">Drop</button></div><div class="panel-footer"><span id="inventory-instruction">Select an item, then choose an action.</span><kbd>ESC to close</kbd></div>`;
-    this.openPanel('inventory', 'Your possessions', body, { selectedKey: null });
+    const body = `<div class="inventory-summary"><span>${items.length} possessions</span><span>${Number(this.snapshot?.player?.gold || 0).toLocaleString()} gold pieces</span></div><div class="inventory-list">${items.length ? [...groups].map(([category, list]) => `<div class="menu-section">${esc(capital(category))}</div>${list.map(item => `<button class="inventory-item" data-item-id="${esc(item.id??'')}" data-item-key="${esc(item.key || item.letter || '')}"><kbd>${esc(item.key || item.letter || '·')}</kbd><span>${esc(item.text || item.name || '')}</span>${item.equipped || /being worn|weapon in hand|wielded/i.test(item.text || '') ? '<b class="equipped-label">EQUIPPED</b>' : ''}${item.quantity > 1 ? `<small>×${item.quantity}</small>` : ''}</button>`).join('')}`).join('') : '<p class="empty-state">Your pack is empty.</p>'}</div><div class="inventory-tools"><button disabled data-inventory-action="w">Wield</button><button disabled data-inventory-action="W">Wear</button><button disabled data-inventory-action="a">Apply</button><button disabled data-inventory-action="q">Drink</button><button disabled data-inventory-action="e">Eat</button><button disabled data-inventory-action="r">Read</button><button disabled data-inventory-action="d">Drop</button></div><div class="panel-footer"><span id="inventory-instruction">Select an item, then choose an action.</span><kbd>ESC to close</kbd></div>`;
+    this.openPanel('inventory', 'Your possessions', body, { selectedKey: null,inventorySignature:JSON.stringify(items.map(i=>[i.id,i.key,i.name,i.quantity,i.equipped])) });
     this.$('#panel-layer').querySelectorAll('[data-item-key]').forEach(button => button.addEventListener('click', () => {
       this.$('#panel-layer').querySelectorAll('.inventory-item.selected').forEach(b => b.classList.remove('selected'));
-      button.classList.add('selected'); this.panel.selectedKey = button.dataset.itemKey;
+      this.$('#panel-layer').querySelectorAll('[data-inventory-action]').forEach(b=>b.disabled=false);
+      button.classList.add('selected'); this.panel.selectedKey = button.dataset.itemKey;this.panel.selectedId=Number(button.dataset.itemId);
       this.$('#inventory-instruction').textContent = button.querySelector('span').textContent;
     }));
-    this.$('#panel-layer').querySelectorAll('[data-inventory-action]').forEach(button => button.addEventListener('click', () => { const key = this.panel.selectedKey; this.closePanels(false); this.callbacks.onCommand?.(button.dataset.inventoryAction, key); }));
+    this.$('#panel-layer').querySelectorAll('[data-inventory-action]').forEach(button => button.addEventListener('click', () => { const key = this.panel.selectedKey,id=this.panel.selectedId; this.closePanels(false); this.callbacks.onCommand?.(button.dataset.inventoryAction, key,id); }));
   }
 
   showCommands(commands = DEFAULT_COMMANDS) {
@@ -431,7 +442,7 @@ export class GameUI {
       this.$('#command-list').innerHTML = filtered.length ? filtered.map(c => {
         const header = c.category !== category ? `<div class="menu-section">${esc(c.category || 'Commands')}</div>` : '';
         category = c.category;
-        return `${header}<button class="command-item" data-palette-key="${esc(c.key)}">${icon(c.icon || 'scroll')}<span><strong>${esc(c.name)}</strong><small>${esc(c.description || '')}</small></span><kbd>${esc(c.key === '\u0004' ? 'CTRL D' : c.key)}</kbd></button>`;
+        return `${header}<button class="command-item" data-palette-key="${esc(c.key)}">${icon(c.icon || 'scroll')}<span><strong>${esc(c.name)}</strong><small>${esc(c.description || '')}</small></span><kbd>Select</kbd></button>`;
       }).join('') : '<p class="empty-state">No matching commands. Try “spell”, “door”, or “armor”.</p>';
       this.$('#command-list').querySelectorAll('[data-palette-key]').forEach(button => button.addEventListener('click', () => { const key = button.dataset.paletteKey; this.closePanels(false); this.callbacks.onCommand?.(key); }));
     };
@@ -441,7 +452,7 @@ export class GameUI {
   }
 
   showSettings() {
-    const body = `<div class="settings-intro">Make the dungeon your own.</div>${[
+    const body = `<div class="settings-intro">Make the dungeon your own.</div><div class="setting-row"><div><strong>Fullscreen</strong><small>Use the entire display. F10 toggles fullscreen; Escape exits.</small></div><button class="text-button" data-action="fullscreen">Toggle fullscreen</button></div>${[
       ['volume', 'Sound volume', 'The sounds of the dungeon.', 0, 1, .05],
       ['sensitivity', 'Look sensitivity', 'How quickly the camera follows your mouse.', .1, 2, .05],
       ['pulseTime', 'Dungeon tempo', 'Pace of hunger, recovery and creature attacks. Movement remains continuous.', .3, 2, .1],
@@ -458,7 +469,7 @@ export class GameUI {
 
   showHelp() {
     const rows = [
-      ['W A S D', 'Walk forward, left, backward, and right'], ['MOUSE', 'Look around'], ['SHIFT', 'Run'], ['CTRL', 'Crouch'], ['LEFT CLICK', 'Attack with your wielded weapon'], ['RIGHT CLICK', 'Choose and cast a spell'], ['E', 'Interact with what is in front of you'], ['F', 'Fire quivered ammunition'], ['I', 'Open inventory'], ['1 – 5', 'Weapon, spells, wands, potions, and tools'], ['TAB', 'Search all commands'], ['ESC', 'Release the mouse or close a panel'],
+      ['W A S D', 'Walk forward, left, backward, and right'], ['MOUSE', 'Look around'], ['SHIFT', 'Run'], ['CTRL', 'Crouch'], ['LEFT CLICK / SPACE', 'Attack with your wielded weapon'], ['RIGHT CLICK', 'Choose and cast a spell'], ['E', 'Interact with what is in front of you'], ['F', 'Fire quivered ammunition'], ['I', 'Open inventory'], ['Z / B', 'Cast a spell / zap a wand'], ['Q / R', 'Drink / read'], ['G', 'Pick up the object you are looking at'], ['T / X', 'Throw / swap weapon'], ['K / P / V', 'Kick / pray / search'], ['1 – 6', 'Wield, cast, zap, drink, apply, eat'], ['F10', 'Toggle fullscreen'], ['TAB', 'Search all commands'], ['ESC', 'Release the mouse or close a panel'],
     ];
     this.openPanel('help', 'Before you descend', `<p class="help-intro">Find the Amulet of Yendor and return to the surface. The dungeon is full of tools, secrets, and creatures with their own intentions.</p><div class="help-controls">${rows.map(([key, action]) => `<div><kbd>${key}</kbd><span>${action}</span></div>`).join('')}</div><div class="help-note"><span class="status-dot"></span><p><strong>The world never pauses.</strong> Monsters can move and attack while you browse your inventory, choose a spell, or read a menu. Find a safe place before making a long decision.</p></div><p class="help-native">Use <strong>Tab → All NetHack commands</strong> for the full repertoire, including prayers, offerings, engraving, riding, naming, and other original interactions. Native menus accept their displayed letter keys.</p>`, { centered: true, overline: 'A FEW WORDS OF GUIDANCE' });
   }
@@ -497,7 +508,8 @@ export class GameUI {
       const choices = Array.isArray(panel.prompt.choices) ? panel.prompt.choices.map(c => typeof c === 'string' ? c : c.key) : String(panel.prompt.choices || 'yn').split('');
       const key = e.key === 'Enter' && panel.prompt.default ? panel.prompt.default : e.key;
       if (choices.includes(key)) { e.preventDefault(); this.closePanels(false); this.callbacks.onKey?.(key); }
-    } else if (panel.type === 'commands' && e.key === '/') { e.preventDefault(); this.$('#command-search').focus(); }
+    } else if(panel.type==='inventory'){const item=[...this.$('#panel-layer').querySelectorAll('[data-item-key]')].find(b=>b.dataset.itemKey===e.key);if(item){e.preventDefault();item.click();}}
+    else if (panel.type === 'commands' && e.key === '/') { e.preventDefault(); this.$('#command-search').focus(); }
   }
 
   destroy() { window.removeEventListener('keydown', this.keyHandler, true); this.root.innerHTML = ''; }

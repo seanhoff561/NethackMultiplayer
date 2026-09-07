@@ -17,3 +17,44 @@
 /* A brief occluded landing transition while the next native floor loads. */
 body::after{content:"";position:fixed;inset:0;background:#080b0b;opacity:0;pointer-events:none;z-index:50;transition:opacity .22s}
 body.floor-transition::after{opacity:1}
+
+/* Descent 0.3: restrained, exploration-first HUD. */
+#ui .game-hud{font-family:Georgia,serif}
+#ui .hud-top-left{top:23px;left:26px;max-width:260px;opacity:.8}
+#ui .location-overline{display:none}
+#ui .location-name{font-size:15px;font-weight:400;letter-spacing:.02em}
+#ui .location-detail{font:10px system-ui,sans-serif;margin-top:6px;letter-spacing:.09em;color:#cabda5}
+#ui .compass{top:20px;width:226px;height:26px;padding:0 18px;justify-content:space-between;border-top:1px solid #c9b99865;border-bottom:1px solid #c9b99835;background:linear-gradient(90deg,transparent,#11120f88,transparent);font:11px system-ui}
+#ui .compass-side{font-size:9px;opacity:.45}
+#ui .compass b{font-size:5px;bottom:-8px;color:#d3c3a3}
+#ui .hud-bottom{position:absolute;bottom:28px;left:50%;right:auto;transform:translateX(-50%);width:360px;min-height:0;display:block;background:none;border:0;padding:0;box-shadow:none}
+#ui .vital-bars{display:flex;gap:18px;min-width:0;max-width:none;width:100%}
+#ui .vital-row{display:flex;flex:1;position:relative;gap:6px;align-items:center}
+#ui .vital-label{display:none}
+#ui .bar{height:5px;flex:1;background:#121310aa;border:1px solid #d6c7a54d;box-shadow:0 1px 4px #000;overflow:hidden}
+#ui .hp-bar>div{background:linear-gradient(90deg,#542324,#b05748)}
+#ui .power-bar>div{background:linear-gradient(90deg,#283954,#73899c)}
+#ui .vital-value{font:9px system-ui;color:#d8cfbc;min-width:38px;opacity:.65}
+#ui .hud-actions{position:fixed;top:23px;right:26px;bottom:auto;left:auto;display:flex;gap:17px;padding:0;border:0;transform:none}
+#ui .hud-bottom .hud-actions{position:absolute;top:auto;bottom:0;right:calc(-50vw + 210px)}
+#ui .hud-actions button{opacity:.65;font:26px system-ui;color:#e0d3b7;padding:5px}
+#ui .hud-actions button:hover{opacity:1}
+#ui .hud-actions button[data-command],#ui .hud-actions button[data-action="commands"]{display:none}
+#ui .hud-actions svg{width:20px;height:20px}
+#ui .hud-conditions{position:absolute;bottom:47px;left:50%;transform:translateX(-50%);color:#e4b181;font:11px system-ui;letter-spacing:.04em}
+#ui .crosshair{opacity:.45;transform:translate(-50%,-50%) scale(.55)}
+#ui .interaction-hint{top:59%;font-size:13px;letter-spacing:.01em;background:linear-gradient(90deg,transparent,#11120f80,transparent);padding:8px 18px;border:0;max-width:540px}
+#ui .interaction-hint kbd{font:11px system-ui;padding:2px 5px;border:1px solid #d7c8a873;background:#16181399}
+#ui .message-log{left:27px;bottom:76px;max-width:460px;gap:5px;transition:opacity 1.5s;pointer-events:none}
+#ui .log-entry,#ui .log-entry.latest{font:12px/1.5 Georgia;color:#dbcfb6;text-shadow:0 1px 4px #000;opacity:.8}
+#ui .message-log.quiet{opacity:0}
+#ui .mouse-capture{top:auto;bottom:72px;width:auto;left:50%;padding:8px 17px;font:12px system-ui;border:1px solid #beab8260;background:#141512b0;box-shadow:none}
+#ui .mouse-capture span{font-size:9px;margin-top:4px}
+#ui .screen-grain{opacity:.018}
+#ui .screen-vignette{background:radial-gradient(ellipse at 50% 45%,transparent 45%,#08070455 100%)}
+.damage-flash{position:fixed;inset:0;pointer-events:none;z-index:45;opacity:0;background:radial-gradient(ellipse at center,#e3202212 12%,#a91b2566 55%,#890a18ec 100%);box-shadow:inset 0 0 80px #f21c2b88}
+.hit-confirm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:24px Georgia;color:#ff7761;text-shadow:0 0 6px #8e0505;opacity:0;pointer-events:none;z-index:22}
+#ui .toast{left:50%;top:72%;bottom:auto;transform:translateX(-50%);padding:8px 17px;background:#14130dc9;border:1px solid #a7956250;font:12px Georgia;color:#e1d2ad;max-width:500px}
+:fullscreen #game{width:100vw;height:100vh}
+#game:focus{outline:none}
+@media(max-width:650px){#ui .hud-top-left{left:15px;top:15px;max-width:140px}#ui .location-name{font-size:12px}#ui .location-detail{font-size:9px}#ui .compass{width:150px;top:15px}#ui .hud-bottom{width:270px;bottom:22px}#ui .hud-bottom .hud-actions{right:calc(-50vw + 155px)}#ui .message-log{left:15px;max-width:75vw}#ui .interaction-hint{max-width:85vw;white-space:normal}}

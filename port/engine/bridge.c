@@ -33,6 +33,19 @@ static char wire_line[16384];
 static int turn_ms = 800;
 static unsigned long action_serial = 0;
 static unsigned long spatial_serial = 0;
+static void json_string(const char *s);
+void descent_player_effect(const char *kind) {
+    fputs("{\"type\":\"player-effect\",\"kind\":",stdout);
+    json_string(kind);fputs("}\n",stdout);fflush(stdout);
+}
+void descent_item_picked_up(struct obj *obj) {
+    fputs("{\"type\":\"item-picked-up\",\"name\":",stdout);
+    json_string(doname(obj));fputs("}\n",stdout);fflush(stdout);
+}
+
+void descent_monster_defeated(unsigned id) {
+    printf("{\"type\":\"actor-defeated\",\"actorId\":%u}\n",id);fflush(stdout);
+}
 static double player_x = 0, player_z = 0, player_height = 0;
 typedef struct SpatialActor { unsigned id; double x,z,y; int gx,gz,can_hit; } SpatialActor;
 static SpatialActor spatial_actors[4096];
@@ -167,8 +180,16 @@ static void snapshot(void) {
             printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"index\":%d,\"name\":",mon->m_id,mon->mx,mon->my,mn);
             json_string(mon->data->pmnames[NEUTRAL]);fputs(",\"symbol\":",stdout);json_char(def_monsyms[(int)mon->data->mlet].sym);
             { SpatialActor *p=actor_position(mon);printf(",\"goalX\":%d,\"goalZ\":%d",p->gx,p->gz); }
+            printf(",\"hp\":%d,\"maxHp\":%d",mon->mhp,mon->mhpmax);
             printf(",\"color\":%d,\"size\":%d,\"speed\":%d,\"tame\":%s,\"peaceful\":%s,\"canMove\":%s,\"sleeping\":%s,\"fleeing\":%s,\"stationary\":%s,\"visible\":%s}",mon->data->mcolor,mon->data->msize,mon->data->mmove,mon->mtame?"true":"false",mon->mpeaceful?"true":"false",mon->mcanmove&&!mon->mtrapped&&!mon->meating?"true":"false",mon->msleeping?"true":"false",mon->mflee?"true":"false",mon->isshk||mon->ispriest||mon->isgd?"true":"false",!mon->mundetected&&mon->m_ap_type==M_AP_NOTHING&&(!mon->minvis||See_invisible)?"true":"false");
         }
+    }
+    fputs("],\"floorObjects\":[",stdout);first=1;
+    for(obj=fobj;obj;obj=obj->nobj) {
+        if(obj->where!=OBJ_FLOOR)continue;
+        if(!first)putchar(',');first=0;
+        printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"quantity\":%ld,\"class\":%d,\"name\":",obj->o_id,obj->ox,obj->oy,obj->quan,obj->oclass);
+        json_string(distant_name(obj,doname));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);putchar('}');
     }
     fputs("],\"inventory\":[", stdout); first = 1;
     for (obj = gi.invent; obj; obj = obj->nobj) {
@@ -246,6 +267,18 @@ static int input_key(const char *kind, const char *prompt) {
     /* Descent must keep time advancing even beside hostile creatures. */
     if(!strcmp(kind,"command"))flags.safe_wait=FALSE;
     request(kind, prompt); finish_request(); p = read_wire();
+    if(wire_line[0]=='g'&&!strcmp(kind,"command")) {
+        unsigned id=(unsigned)strtoul(p,NULL,10);struct obj *obj;
+        struct trap *trap=t_at(u.ux,u.uy);
+        if(u.uswallow||notake(gy.youmonst.data)||!can_reach_floor(trap&&is_pit(trap->ttyp))) {
+            You("cannot reach that item.");return '.';
+        }
+        gp.pickup_encumbrance=0;
+        for(obj=fobj;obj;obj=obj->nobj)if(obj->o_id==id&&obj->where==OBJ_FLOOR&&distmin(u.ux,u.uy,obj->ox,obj->oy)<=1){
+            (void)pickup_object(obj,obj->quan,FALSE);break;
+        }
+        return '.';
+    }
     if(wire_line[0]=='a'&&!strcmp(kind,"command")) {
         unsigned id=(unsigned)strtoul(p,NULL,10);struct monst *mon;
         for(mon=fmon;mon;mon=mon->nmon)if(mon->m_id==id&&!DEADMONSTER(mon)&&descent_in_reach(mon)) {
@@ -356,7 +389,11 @@ static void bridge_callback(const char *name, void *ret, const char *fmt, ...) {
     }
     else if (!strcmp(name, "shim_display_nhwindow")) {
         int blocking; w=va_arg(ap,int); blocking=va_arg(ap,int);
-        if(w>0 && w<MAX_WINDOWS && bw[w].text[0]) { request("display",bw[w].text); finish_request(); read_wire(); }
+        if(w>0 && w<MAX_WINDOWS && bw[w].text[0]) {
+            /* Ground piles are presented as individual 3D objects, not a modal. */
+            if(bw[w].type==NHW_MENU&&(strstr(bw[w].text,"that are here:")||strstr(bw[w].text,"that you feel here:"))) { }
+            else {request("display",bw[w].text);finish_request();read_wire();}
+        }
     }
     else if (!strcmp(name, "shim_display_file")) {
         dlb *f; char line[BUFSZ]; s=va_arg(ap,const char *); f=dlb_fopen(s,"r");

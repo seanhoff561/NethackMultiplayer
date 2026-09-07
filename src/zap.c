@@ -3447,6 +3447,12 @@ weffects(struct obj *obj)
     int otyp = obj->otyp;
     boolean disclose = FALSE, was_unkn = !objects[otyp].oc_name_known;
 
+#ifdef DESCENT_SPATIAL
+    if (obj->oclass == WAND_CLASS) {
+        extern void descent_player_effect(const char *);
+        descent_player_effect("spell");
+    }
+#endif
     exercise(A_WIS, TRUE);
     if (u.usteed && (objects[otyp].oc_dir != NODIR) && !u.dx && !u.dy
         && (u.dz > 0) && zap_steed(obj)) {

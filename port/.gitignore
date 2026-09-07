@@ -11,3 +11,8 @@ dist-spatial/
 engine/runtime-spatial/
 .spatial-server.log
 .spatial-server-errors.log
+
+dist-polished/
+engine/runtime-polished/
+.polished-server.log
+.polished-server-errors.log

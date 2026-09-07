@@ -2,6 +2,10 @@
 import { DungeonRenderer } from './renderer.js';
 import { DungeonAudio } from './audio.js';
 import { GameUI } from './ui.js';
+import {targetLoot} from './loot.js';
+import {GameInput,COMMAND_KEYS} from './input.js';
+let input,actionSequence=0;
+const pendingActions=new Map();
 import {CollisionWorld,integratePlayer,CELL} from './spatial.js';
 let collision=new CollisionWorld(),body=null,motion=null,collisionSignature='';
 
@@ -15,12 +19,12 @@ const audio=new DungeonAudio();
 const stored=(()=>{try{return JSON.parse(localStorage.getItem('descent.settings'))||{};}catch{return {};}})();
 const settings={volume:0.55,sensitivity:1,pulseTime:0.8,...stored};
 let socket,world=null,playing=false,pendingPrompt=null,commands=[],connected=false,lastHp=null,lastPower=null,lastLevel=null,lastMessageCount=0;
-let keys=new Set(),yaw=0,pitch=0,lastAction=0,lastStep=0,lastTime=performance.now(),movementTime=0;
+let yaw=0,pitch=0,lastAction=0,lastStep=0,lastTime=performance.now(),movementTime=0;
 let pose={x:4.5,y:7.5,yaw:0,pitch:0,crouch:false,moving:false,running:false};
 const ui=new GameUI({
   onStart:character=>{audio.start();send({type:'start',character});ui.setEngineStatus('Entering the Dungeons of Doom…',false);},
   onContinue:()=>{audio.start();send({type:'continue'});},
-  onCommand:(key,itemKey)=>command(typeof key==='string'?key:key.key,itemKey),
+  onCommand:(key,itemKey,itemId)=>command(typeof key==='string'?key:key.key,itemKey,undefined,itemId),
   onKey:key=>answer({kind:'key',value:key}),
   onText:value=>answer({kind:pendingPrompt?.kind==='extcmd'?'extcmd':'text',value}),
   onMenu:selection=>{
@@ -28,24 +32,32 @@ const ui=new GameUI({
     answer({kind:'menu',value:selection.selected||[]});
   },
   onSettings:value=>{Object.assign(settings,value);localStorage.setItem('descent.settings',JSON.stringify(settings));audio.setVolume?.(settings.volume);send({type:'settings',...settings});},
-  onClose:()=>{pendingPrompt=null;send({type:'cancel'});keys.clear();},
+  onClose:()=>{pendingPrompt=null;send({type:'cancel'});input?.clear();capture();},
+  onPanel:()=>unlock(),
+  onFullscreen:()=>toggleFullscreen(),
 });
 audio.setVolume?.(settings.volume);
 
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
-function unlock(){if(document.pointerLockElement)document.exitPointerLock();keys.clear();send({type:'release'});}
-function capture(){if(playing&&!ui.hasPanel)canvas.requestPointerLock?.().catch?.(()=>{});}
-function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else send({type:'answer',input});pendingPrompt=null;ui.closePanels(false);}
+function unlock(){if(document.pointerLockElement)document.exitPointerLock();input?.clear();send({type:'release'});}
+function capture(){if(playing&&!ui.hasPanel){canvas.focus({preventScroll:true});canvas.requestPointerLock?.().catch?.(()=>ui.setPointerLocked(false));}}
+async function toggleFullscreen(){
+  try {if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}
+  catch{ui.message('Fullscreen is unavailable here. Open the game window or press F11 in your browser.');}
+}
+function action(message){const id=`${clientId}:${++actionSequence}`;pendingActions.set(id,message);send({type:'action',id,...message});}
+const clientId=Math.random().toString(36).slice(2);
+function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else send({type:'answer',input});pendingPrompt=null;ui.closePanels(false);capture();}
 function direction(dx,dy){return ({'-1,-1':'y','0,-1':'k','1,-1':'u','-1,0':'h','1,0':'l','-1,1':'b','0,1':'j','1,1':'n'})[`${Math.sign(dx)},${Math.sign(dy)}`]||'.';}
 function facing(){const dirs=[[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];return dirs[((Math.round(yaw/(Math.PI/4))%8)+8)%8];}
 function aim(){return direction(...facing());}
-function command(key,itemKey,targetCell) {
+function command(key,itemKey,targetCell,itemId) {
   if(!key||!playing)return;
+  if(key===','){const item=targetLoot(world?.floorObjects,body,yaw,collision);if(item){ui.closePanels(false);action({key:'.',pickup:item.id});capture();return;}}
   if(key==='i'||key==='#inventory'){unlock();ui.showInventory(world?.inventory||[]);return;}
   if(key==='#commands'||key==='#'){unlock();ui.showCommands(commands);return;}
   ui.closePanels(false);pendingPrompt=null;
-  send({type:'action',key:itemKey?key+itemKey:key,aim:aim(),targetCell});
-  if(key==='f'||key==='t'){renderer.attack('ranged');audio.attack();}
+  action({key:itemKey?key+itemKey:key,aim:aim(),targetCell,itemId});capture();
 }
 function nearbyDoor(){
   if(!body)return null;
@@ -53,6 +65,7 @@ function nearbyDoor(){
   return null;
 }
 function interact(){
+  const loot=targetLoot(world?.floorObjects,body,yaw,collision);if(loot){command(',');return;}
   const door=nearbyDoor();if(door){command('o',null,{x:door.x,z:door.y});return;}
 
   const [dx,dy]=facing(),p=body?{x:Math.floor(body.x/CELL),y:Math.floor(body.z/CELL)}:world?.player;if(!p)return;
@@ -64,12 +77,27 @@ function interact(){
   else if(ahead?.monster)command('#chat');
   else command(',');
 }
-function attack(){if(!playing||ui.hasPanel)return;const now=performance.now();if(now-lastAction<450)return;lastAction=now;send({type:'input',yaw,forward:0,strafe:0});send({type:'action',key:'.',melee:true});renderer.attack('melee');audio.attack();}
+function attack(){
+  if(!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
+  action({key:'.',melee:true,yaw});
+}
+function handleAction(name){
+  if(name==='fullscreen'){toggleFullscreen();return;}
+  if(name==='attack')attack();
+  else if(name==='inventory')command('i');
+  else if(name==='commands')command('#commands');
+  else if(name==='interact')interact();
+  else if(name==='release')unlock();
+  else if(COMMAND_KEYS[name])command(COMMAND_KEYS[name]);
+}
+input=new GameInput({context:()=>ui.panel?'menu':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
+canvas.tabIndex=-1;
+
 
 function connect(){
   socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
   socket.addEventListener('open',()=>{connected=true;send({type:'settings',...settings});});
-  socket.addEventListener('close',()=>{connected=false;ui.message('Connection lost. Reconnecting to your expedition…');setTimeout(connect,1500);});
+  socket.addEventListener('close',()=>{connected=false;pendingActions.clear();input.reset();ui.message('Connection lost. Reconnecting to your expedition…');setTimeout(connect,1500);});
   socket.addEventListener('message',event=>{
     let data;try{data=JSON.parse(event.data);}catch{return;}
     if(data.type==='hello'){
@@ -78,7 +106,23 @@ function connect(){
       if(data.running){playing=true;ui.setMode('game');}
       return;
     }
-    if(data.type==='starting'){playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;ui.setMode('loading');return;}
+    if(data.type==='action-status'){
+      if(data.status==='started'){const a=pendingActions.get(data.id);if(a?.melee){renderer.attack('melee');audio.attack();}pendingActions.delete(data.id);}
+      else if(data.status==='rejected'||data.status==='cancelled'){pendingActions.delete(data.id);if(data.reason)ui.message(data.reason);}
+      return;
+    }
+    if(data.type==='player-effect'){renderer.attack(data.kind);audio.attack(data.kind);return;}
+    if(data.type==='item-picked-up'){audio.pickup(data.name);ui.toast(`Picked up ${data.name}`);return;}
+    if(data.type==='actor-defeated'){if(renderer.hitActor(data.actorId,true)){audio.impact();ui.confirmHit();}return;}
+    if(data.type==='feedback'){
+      for(const e of data.events||[]){
+        if(e.kind==='actor-hit'){if(renderer.hitActor(e.actorId,e.dead)){audio.impact();ui.confirmHit();}}
+        if(e.kind==='player-hit'){audio.hit();renderer.attack('hit');ui.damage(e.amount);}
+        if(e.kind==='pickup'){audio.pickup(e.name);ui.toast(`Picked up ${e.name}`);}
+        if(e.kind==='door')audio.door();
+      }return;
+    }
+    if(data.type==='starting'){pendingActions.clear();playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;ui.setMode('loading');return;}
     if(data.type==='motion'){
       if(!data.player||data.levelId!==lastLevel)return;
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
@@ -108,7 +152,7 @@ function connect(){
       }
       if(lastLevel!==null&&lastLevel!==level){const entry=collision.stairs.find(s=>s.cellX===p.x&&s.cellZ===p.y);if(entry)yaw=entry.angle+Math.PI;}
       lastLevel=level;
-      if(lastHp!==null&&p.hp<lastHp){audio.hit();renderer.attack('hit');document.body.classList.remove('damage');void document.body.offsetWidth;document.body.classList.add('damage');}
+
       if(lastPower!==null&&p.power<lastPower){renderer.attack('spell');audio.spell();}lastPower=p.power;
       lastHp=p.hp;renderer.setWorld(world);ui.update({...world,heading:-yaw,yaw});
       if(!playing&&p.hp>0){playing=true;ui.setMode('game');ui.message('You descend into the Dungeons of Doom. Click the view to look around.');send({type:'settings',...settings});}
@@ -148,47 +192,18 @@ function normalize(snapshot){
 }
 function headingName(angle){return ['N','NW','W','SW','S','SE','E','NE'][((Math.round(angle/(Math.PI/4))%8)+8)%8];}
 
-window.addEventListener('keydown',event=>{
-  if(event.target.matches('input,textarea,select')||!playing)return;
-  if(ui.hasPanel)return;
-  const code=event.code;keys.add(code);
-  if(['Tab','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ControlLeft','ControlRight','ShiftLeft','ShiftRight'].includes(code))event.preventDefault();
-  if(event.repeat)return;
-  if(code==='KeyI'){unlock();ui.showInventory(world?.inventory||[]);}
-  else if(code==='Tab'||code==='KeyC'||event.key==='#'){unlock();ui.showCommands(commands);}
-  else if(code==='KeyE')interact();
-  else if(code==='Space')attack();
-  else if(code==='KeyF')command('f');
-  else if(code==='KeyZ')command(event.shiftKey?'z':'Z');
-  else if(code==='KeyQ')command('q');
-  else if(code==='KeyR')command('r');
-  else if(code==='KeyX')command('x');
-  else if(code==='KeyG')command(',');
-  else if(code==='KeyT')command('t');
-  else if(code==='KeyK')command('\x04');
-  else if(code==='KeyP')command('#pray');
-  else if(code==='KeyV')command('s');
-  else if(event.key==='>'||event.key==='<')command(event.key);
-  else if(code==='Digit1')command('w');
-  else if(code==='Digit2')command('Z');
-  else if(code==='Digit3')command('z');
-  else if(code==='Digit4')command('q');
-  else if(code==='Digit5')command('a');
-  else if(code==='Digit6')command('e');
-});
-window.addEventListener('keyup',e=>{keys.delete(e.code);if(['KeyW','KeyA','KeyS','KeyD'].includes(e.code))send({type:'release'});});
-window.addEventListener('blur',()=>{keys.clear();send({type:'release'});});
-document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement){keys.clear();send({type:'release'});}document.body.classList.toggle('mouse-captured',!!document.pointerLockElement);ui.setPointerLocked(!!document.pointerLockElement);});
+document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement){input?.clear();send({type:'release'});}document.body.classList.toggle('mouse-captured',!!document.pointerLockElement);ui.setPointerLocked(!!document.pointerLockElement);});
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas){yaw-=e.movementX*.0022*settings.sensitivity;pitch=Math.max(-1.15,Math.min(1.15,pitch-e.movementY*.0022*settings.sensitivity));}});
 canvas.addEventListener('click',()=>{audio.start();if(document.pointerLockElement!==canvas)capture();});
 canvas.addEventListener('mousedown',e=>{
   if(!playing||ui.hasPanel)return;
   if(e.button===0&&document.pointerLockElement===canvas)attack();
-  if(e.button===2){command('Z');}
+  if(e.button===2&&document.pointerLockElement===canvas){command('Z');}
 });
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 document.querySelector('#mouse-capture').addEventListener('click',capture);
 window.addEventListener('resize',()=>renderer.resize());
+document.addEventListener('fullscreenchange',()=>{renderer.resize();ui.setFullscreen(!!document.fullscreenElement);});
 
 // A decorative title backdrop. Play uses only maps supplied by the native engine.
 function titleScene(){
@@ -203,27 +218,24 @@ titleScene();connect();
 let sendAt=0;
 function frame(time){
   const dt=Math.min((time-lastTime)/1000,.06);lastTime=time;
-  const running=keys.has('ShiftLeft')||keys.has('ShiftRight'),crouch=keys.has('ControlLeft')||keys.has('ControlRight');
-  let moving=false;
+  const running=input.is('run'),crouch=input.is('crouch');
   if(playing&&!ui.hasPanel){
-    if(keys.has('ArrowLeft'))yaw+=dt*1.9;if(keys.has('ArrowRight'))yaw-=dt*1.9;
-    const f=(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0);
-    const side=(keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0);
-    moving=!!(f||side);
-    const input={forward:f,strafe:side,yaw,run:running,crouch};
-    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,input,dt*(body.speedScale||1),motion?.actors||[]);
-    if(time-sendAt>33){send({type:'input',...input});sendAt=time;}
+    if(input.is('turnLeft'))yaw+=dt*1.9;if(input.is('turnRight'))yaw-=dt*1.9;
+    const movement=input.motion(yaw);
+    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale||1),motion?.actors||[]);
+    if(time-sendAt>33){send({type:'input',...movement});sendAt=time;}
   }
   const previousX=pose.x,previousY=pose.y;
   if(playing&&body){pose.x=body.x/CELL;pose.y=body.z/CELL;pose.elevation=body.y;}
   const travelled=Math.hypot(pose.x-previousX,pose.y-previousY)*CELL;
-  if(playing&&travelled>.001&&time-lastStep>(running?280:460)){audio.step();lastStep=time;}
+  if(playing&&travelled>.001&&time-lastStep>(running?280:460)){audio.step(running,collision.at(body.x,body.z)?.type,crouch);lastStep=time;}
   pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&travelled>.001,running};
-  renderer.setPose(pose);renderer.update(dt);audio.ambient(dt);
+  renderer.setPose(pose);renderer.update(dt);audio.ambient(dt,{playing,pose,torches:renderer.torches,water:world?.tiles.some(t=>t.type==='fountain'&&Math.hypot(t.x-pose.x,t.y-pose.y)<4)});
   if(world&&time-movementTime>150){
     const [dx,dy]=facing(),p=world.player;
     const ahead=world.tiles.find(t=>t.x===p.x+dx&&t.y===p.y+dy),here=world.tiles.find(t=>t.x===p.x&&t.y===p.y);
-    let interaction=nearbyDoor()?'Open door':here?.type==='stairs_down'?'Walk down the stairwell':here?.type==='stairs_up'?'Walk up the stairwell':here?.object?`Pick up ${here.object.name}`:ahead?.monster?`${ahead.monster.name}${ahead.monster.tame?' · companion':ahead.monster.peaceful?' · peaceful':''}`:'';
+    const loot=targetLoot(world?.floorObjects,body,yaw,collision);
+    let interaction=loot?`Take ${loot.name}`:nearbyDoor()?'Open door':here?.type==='stairs_down'?'Walk down the stairwell':here?.type==='stairs_up'?'Walk up the stairwell':here?.object?`Pick up ${here.object.name}`:ahead?.monster?`${ahead.monster.name}${ahead.monster.tame?' · companion':ahead.monster.peaceful?' · peaceful':''}`:'';
     ui.update({...world,elapsed:motion?.time,player:{...world.player,x:pose.x-.5,y:pose.y-.5},yaw,heading:-yaw,interaction,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
   }
   requestAnimationFrame(frame);

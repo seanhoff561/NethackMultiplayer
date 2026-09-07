@@ -6,7 +6,7 @@ This is a substantial development build, not a finished commercial game or a cla
 
 ## Play
 
-Double-click **`Play NetHack 3D.cmd`** in the repository root. It starts the local server and opens the game in a standalone Chrome window, or your default browser if Chrome is unavailable. The spatial executable is already built for Windows x64. The earlier build on port 5173 and its runtime are separate; this launcher opens the new build on 5174. Node.js 22 or newer and a browser supporting WebGL 2 are required.
+Double-click **`Play NetHack 3D.cmd`** in the repository root. It starts the local server and opens the game in a standalone Chrome window, or your default browser if Chrome is unavailable. The polished executable is already built for Windows x64. This launcher opens version 0.3 on port 5175; the earlier builds on 5173 and 5174 and their save directories remain separate. Node.js 22 or newer and a browser supporting WebGL 2 are required.
 
 Alternatively, from this directory:
 
@@ -15,9 +15,9 @@ npm ci
 npm start
 ```
 
-Open `http://127.0.0.1:5174`. Choose a name, role, race, gender and alignment, then enter the dungeon. Click the view to capture the mouse. Escape releases it. The interface restricts character combinations to valid role/race/alignment combinations.
+Open `http://127.0.0.1:5175`. Choose a name, role, race, gender and alignment, then enter the dungeon. Click the view to capture the mouse. Escape releases it. The interface restricts character combinations to valid role/race/alignment combinations.
 
-**Save using Tab → Save → Yes before closing the game.** Continue restores the last character through NetHack's native save system. Closing a browser window does not stop the server's world clock. Fractional body positions and stair height are saved alongside the native save. Save files and scores are in `engine/runtime-spatial/`; keep that directory to keep your expeditions.
+**Save using Tab → Save → Yes before closing the game.** Continue restores the last character through NetHack's native save system. Closing a browser window does not stop the server's world clock. Fractional body positions and stair height are saved alongside the native save. Save files and scores are in `engine/runtime-polished/`; keep that directory to keep your expeditions.
 
 ## Controls
 
@@ -29,18 +29,21 @@ Open `http://127.0.0.1:5174`. Choose a name, role, race, gender and alignment, t
 | Control | Crouch; lowers your view and slows movement |
 | Left mouse / Space | Attack toward the crosshair with your wielded weapon |
 | Right mouse / Z | Choose a spell to cast |
-| Shift+Z | Zap a wand |
-| E | Open the door in front of you, talk, or pick up at your feet |
+| B | Zap a wand |
+| E | Pick up the nearby object you are facing, open a door or interact |
 | F / T | Fire quivered ammunition / throw an item |
 | I | Inventory; select an item, then Wield, Wear, Apply, Drink, Eat, Read or Drop |
-| Tab / C | Search the complete engine command registry |
+| Tab | Search the complete engine command registry |
 | 1 / 2 / 3 / 4 / 5 / 6 | Wield / cast / zap / quaff / apply / eat |
 | Q / R / X | Quaff / read / swap weapons |
 | G / K / P / V | Pick up / kick / pray / search |
 | Walk along stairs | Follow the left flight, turn on the landing, then follow the return flight to the next floor |
-| < / > | Original ascend / descend command shortcuts |
+| Tab → Ascend / Descend | Original stair commands |
 | Arrow keys | Keyboard turning and forward/backward movement |
+| F10 / fullscreen button | Enter or leave true fullscreen; also available in Settings |
 | Escape | Release mouse, close a panel or cancel the pending command |
+
+Each physical key has one gameplay binding. Menus own their displayed letter accelerators while open; holding a menu key cannot start walking after closing it. Releasing one movement key preserves other held directions. Attacks are acknowledged and briefly buffered while the native engine is busy, and holding an attack key does not queue repeated swings. Inventory selections follow object IDs if letters change; missing objects are rejected.
 
 Menus accept clicks and their original letter accelerators. Commands whose original letters conflict with WASD remain available in the searchable palette. Directional actions use your facing direction; specialized position selection still uses native eight-way keys. Shields are worn through **Wear** and provide NetHack's original armor protection. Weapon damage, resistances, spell success, wand charges, armor, curses and status effects are resolved by the original engine.
 
@@ -53,10 +56,14 @@ Menus accept clicks and their original letter accelerators. Commands whose origi
 - Continuous creature steering with route finding, line-of-sight awareness, pursuit memory, pet goals, fleeing, collision and walk animation. Motion and native status updates continue while menus are open.
 - Physical melee targeting uses a forward cone, metre-space reach, elevation and obstruction tests, followed by native damage resolution.
 - Full-height 4.2 metre stairwells, two flights, a turning landing, treads, rails, masonry and light. Foot elevation follows the flights in both directions. Reaching the final landing invokes the native floor connection with a brief fade.
-- Whole-level architectural geometry remains present independent of map exploration. Merged floors, ceilings and walls use consistently scaled masonry textures. Hardware occlusion, torchlight, shadows and distance fog determine the view; discovery flags apply to the map only.
-- Procedural stone and wood textures, ceilings and masonry, animated torches, local lights and shadows, fog, dust, branch color variation, fountains, altars, doors, stairs, trees, graves, thrones, bars, lava, water and discovered traps.
+- Whole-level architectural geometry remains present independent of map exploration. Merged floors, ceilings and walls use consistently scaled masonry textures. Hardware occlusion, torchlight, shadows and distance fog determine the view; discovery flags remain available to native commands.
+- Layered stone color and relief textures, wood grain, ceilings and masonry, animated torches, local lights and shadows, fog, dust, branch color variation, fountains, altars, doors, stairs, trees, graves, thrones, bars, lava, water and discovered traps.
 - Procedural creature families covering humanoids, quadrupeds, insects, bats, dragons, fungi, slimes, snakes, floating creatures and mimics. Items and wielded weapons have distinct model families.
-- A character builder, native command search, live health/power/armor/conditions, message history, an explored minimap and larger map, inventory actions, settings and synthesized dungeon ambience.
+- A restrained HUD with compass, elapsed time, health/power and conditions. The corner map is removed; recent messages fade out. Inventory, native command search and settings remain available on demand.
+- Sealed unused stair lanes at both floor entrances; dust stays inside walkable dungeon geometry. Torch pool transitions, blindness and first-person lighting ease smoothly. Faded heraldic banners, chained wall rings, sealed ossuaries and carved stone sun motifs distinguish areas without affecting collision or gameplay.
+- Beveled sword blades, curved axe heads, arrows, bottles, fitted gloves, continuous forearms, reflective metal and broad slashing/thrusting animations. Creatures flash red on actual native HP loss or death, and player damage produces a red screen vignette.
+- Stable, separated floor objects with direct targeting and collision-aware placement. Walking onto a pile no longer opens a chronicle window. Successful native pickups, throws and wand use emit explicit feedback events.
+- Stereo dungeon air, distant stone creaks, reverberant drips, nearby torch crackles, varied footsteps, weapon whooshes, impacts and pickup sounds. All audio is synthesized locally and starts on a user gesture.
 
 All runtime assets are local. There are no CDN, account or hosting requirements.
 
@@ -90,17 +97,17 @@ powershell -ExecutionPolicy Bypass -File engine/build.ps1
 
 The native build uses Visual Studio C++ Build Tools. The script finds them with `vswhere`, with a fallback for the installed VS 2019 toolchain. Set `NETHACK_VCVARS` to another `vcvars64.bat` if necessary. Microsoft SDK NuGet packages are pinned and SHA-256 checked, and extracted locally under `.tools/sdk/`. The upstream NMake build supplies Lua and the game's generated data.
 
-`npm run test:browser` starts its own isolated QA server and runtime, checks the rendered game in Chrome, then closes that server. It checks fractional movement, crouching, time in inventory, native saving and fractional-position restoration, and captures the game and stairwell under `test-results/`. `npm test` also checks swept collision, diagonal speed, door projection, whole-floor stair traversal in both directions and a real native level change. No tests use the player runtime.
+`npm run test:browser` runs two browser suites with isolated QA servers and runtimes, then closes them. It checks fractional movement, crouching, time in inventory, native saving and fractional-position restoration, and captures the game and stairwell under `test-results/`. `npm test` also checks swept collision, diagonal speed, door projection, whole-floor stair traversal in both directions and a real native level change. The polish suite also exercises true fullscreen, input repeat, overlapping movement keys, live inventory, direct floor pickup and attack acknowledgments. A separately labeled presentation fixture verifies isolated red flashes, the damage overlay, physical stair caps, fixed dust and weapon motion. No tests use the player runtime.
 
 `PORT`, `NETHACK_ENGINE` and `NETHACK_RUNTIME` can override the server port, executable and save/data directory. The server binds only to `127.0.0.1` and accepts same-origin WebSocket connections.
 
 ## Architecture
 
-`engine/bridge.c` implements NetHack's existing shim window interface and emits newline-delimited JSON snapshots and input requests. `engine/windmain-bridge.c` adapts the Windows entry point for a headless process and local portable paths. The spatial executable compiles guarded `DESCENT_SPATIAL` hooks in `src/monmove.c`, `src/dogmove.c` and `src/mhitu.c`. Normal upstream builds do not enable those hooks.
+`engine/bridge.c` implements NetHack's existing shim window interface and emits newline-delimited JSON snapshots and input requests. `engine/windmain-bridge.c` adapts the Windows entry point for a headless process and local portable paths. The spatial executable compiles guarded `DESCENT_SPATIAL` hooks in `src/monmove.c`, `src/dogmove.c`, `src/mhitu.c`, `src/mon.c`, `src/pickup.c`, `src/dothrow.c` and `src/zap.c`. Normal upstream builds do not enable those hooks.
 
 `src/spatial.js` owns shared collision, stair dimensions and surface merging. `lib/spatial-simulation.mjs` owns authoritative bodies, steering, native anchor projection and spatial saves.
 
-`lib/native-session.mjs` translates input and manages detached menus. `lib/realtime.mjs` drives wall-clock actions. `server.mjs` owns the engine process, serves the local frontend and transports state over WebSocket. `src/main.js` owns controls, prediction and server reconciliation; `src/renderer.js`, `src/ui.js` and `src/audio.js` present the game.
+`lib/native-session.mjs` translates input and manages detached menus. `lib/realtime.mjs` drives wall-clock actions; `lib/action-queue.mjs` buffers and validates commands. `src/input.js` owns exclusive physical bindings. `src/loot.js` shares floor-object layout and targeting between rendering and the server; `lib/feedback.mjs` detects native health changes. `server.mjs` owns the engine process, serves the local frontend and transports state over WebSocket. `src/main.js` owns controls, prediction and server reconciliation; `src/renderer.js`, `src/ui.js` and `src/audio.js` present the game.
 
 The engine exposes its regular command registry at runtime. The source-derived fallback in `lib/commands.mjs` supports the interface before engine startup.
 
