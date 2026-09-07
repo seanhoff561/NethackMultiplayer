@@ -98,3 +98,10 @@ util/*.lib
 util/*.exp
 submodules/CHKSUMS.tmp
 sys/amiga/regex/
+
+# NetHack: Descent modification, 2026-09-07. Local SDK and port build outputs.
+.tools/
+/port/engine/test-session-*/
+/port/engine/build/
+/port/engine/*.lnk
+!/port/engine/bin/nethack-engine.exe

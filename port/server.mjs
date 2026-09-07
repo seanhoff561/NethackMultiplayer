@@ -1,0 +1,107 @@
+// NetHack: Descent modification, 2026-09-07. Distributed under dat/license.
+import http from 'node:http';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {existsSync,readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync} from 'node:fs';
+import {WebSocketServer,WebSocket} from 'ws';
+import {NativeSession} from './lib/native-session.mjs';
+import {RealtimeClock} from './lib/realtime.mjs';
+import {readCommands} from './lib/commands.mjs';
+
+const root=path.dirname(fileURLToPath(import.meta.url));
+const repository=path.dirname(root);
+const port=Number(process.env.PORT)||5173;
+const production=existsSync(path.join(root,'dist/index.html')) && !process.argv.includes('--dev');
+const siteRoot=production?path.join(root,'dist'):root;
+const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine.exe');
+const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime');
+const commands=readCommands(path.join(repository,'src/cmd.c'));
+const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.map':'application/json'};
+const metadataFile=path.join(runtime,'descent-session.json');
+let session=null,clock=null,lastSnapshot=null,lastCharacter=null,lastPrompt=null,awaitingTurn=null,worldInterval=800;
+if(existsSync(metadataFile)){try{lastCharacter=JSON.parse(readFileSync(metadataFile,'utf8'));}catch{}}
+const canContinue=()=>!!lastCharacter&&existsSync(path.join(runtime,lastCharacter.name+'.NetHack-saved-game'));
+const server=http.createServer((req,res)=>{
+  const url=new URL(req.url,'http://localhost');
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('Cache-Control','no-store');
+  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production});
+  if(url.pathname==='/api/commands')return json(res,commands);
+  let file;
+  if(url.pathname==='/vendor/three.js') file=path.join(root,'node_modules/three/build/three.module.js');
+  else if(url.pathname==='/vendor/three.core.js') file=path.join(root,'node_modules/three/build/three.core.js');
+  else if(url.pathname==='/LICENSE.txt')file=path.join(repository,'dat/license');
+  else if(url.pathname==='/lib/commands.mjs') {
+    // Browser uses only the two pure directional helpers.
+    res.writeHead(200,{'Content-Type':'text/javascript'});
+    return res.end(readFileSync(path.join(root,'lib/commands.mjs'),'utf8').split('export function directionKey')[1].replace(/^/,'export function directionKey'));
+  } else {
+    let decoded;try{decoded=decodeURIComponent(url.pathname);}catch{res.writeHead(400);return res.end('Bad URL');}
+    if(decoded!=='/' && !/^\/(src\/|game\.js|style\.css|index\.html)/.test(decoded)){res.writeHead(404);return res.end('Not found');}
+    file=path.resolve(siteRoot,`.${decoded==='/'?'/index.html':decoded}`);
+    if(!file.startsWith(siteRoot+path.sep)){res.writeHead(403);return res.end('Forbidden');}
+  }
+  try {const data=readFileSync(file);res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end('Not found');}
+});
+function json(res,data){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
+const wss=new WebSocketServer({server,maxPayload:32768,verifyClient:({origin,req})=>!origin||origin===`http://${req.headers.host}`});
+function broadcast(event){const data=JSON.stringify(event);for(const ws of wss.clients)if(ws.readyState===WebSocket.OPEN)ws.send(data);}
+function notice(text){broadcast({type:'notice',text});}
+function start(character={},resume=false){
+  if(session&&!session.closed){notice('Your expedition is already running.');if(lastSnapshot)broadcast(lastSnapshot);return;}
+  if(!existsSync(executable)){broadcast({type:'failure',text:'The native engine is not built yet. Run port\\engine\\build.ps1, then launch again.'});return;}
+  const roles=['Archeologist','Barbarian','Caveman','Healer','Knight','Monk','Priest','Ranger','Rogue','Samurai','Tourist','Valkyrie','Wizard'];
+  const races=['human','elf','dwarf','gnome','orc'];
+  character=resume&&lastCharacter?lastCharacter:character;
+  const config={name:String(character.name||'Adventurer').replace(/[^a-zA-Z0-9 _-]/g,'').trim().slice(0,24)||'Adventurer',role:roles.find(r=>r.toLowerCase()===String(character.role).toLowerCase())||'Valkyrie',race:races.includes(character.race)?character.race:'human',gender:['male','female'].includes(character.gender)?character.gender:'female',alignment:['lawful','neutral','chaotic'].includes(character.alignment)?character.alignment:'lawful'};
+  lastCharacter=config;mkdirSync(runtime,{recursive:true});writeFileSync(metadataFile,JSON.stringify(config));
+  for(const file of readdirSync(path.join(root,'engine/data'))) {
+    const dest=path.join(runtime,file);
+    if(!existsSync(dest))copyFileSync(path.join(root,'engine/data',file),dest);
+  }
+  // genl_prag stops at a non-option name argument, so identity must come last.
+  const args=['-p',config.role,'-r',config.race,'-g',config.gender,'-a',config.alignment,'-u',config.name];
+  session=new NativeSession({executable,cwd:runtime,args,env:{NH_TURN_MS:String(worldInterval)}});
+  lastPrompt=null;lastSnapshot=null;
+  clock=new RealtimeClock({act:action=>{awaitingTurn=session.snapshot?.actionSerial;session.act(action);},canAct:()=>session.ready&&!session.closed,interval:worldInterval});
+  session.on('ready',()=>{
+    // Bumping a wall or using a free informational command cannot stop time.
+    const previous=awaitingTurn;awaitingTurn=null;
+    if(previous!==null&&session.ready&&session.snapshot?.actionSerial<=previous)session.act({key:'.',idle:true});
+  });
+  session.on('snapshot',snapshot=>{
+    lastSnapshot=snapshot;broadcast(snapshot);
+    if(snapshot.player?.hp>0&&!clock.active)clock.start();
+  });
+  session.on('prompt',request=>{lastPrompt=request;broadcast({type:'prompt',...request,type:'prompt'});});
+  session.on('clearPrompt',()=>{lastPrompt=null;broadcast({type:'clearPrompt'});});
+  session.on('notice',notice);
+  session.on('diagnostic',text=>{console.log('[engine]',text.trim().slice(0,1200));});
+  session.on('event',event=>{if(event.type!=='ended')broadcast(event);});
+  session.on('failure',text=>{clock.stop();broadcast({type:'failure',text});});
+  session.on('ended',event=>{clock.stop();lastPrompt=null;broadcast({type:'ended',...event,saved:existsSync(path.join(runtime,config.name+'.NetHack-saved-game'))});});
+  broadcast({type:'starting',character:config});session.start();
+}
+wss.on('connection',ws=>{
+  ws.send(JSON.stringify({type:'hello',ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),commands}));
+  if(session&&!session.closed&&lastSnapshot)ws.send(JSON.stringify(lastSnapshot));
+  if(session&&!session.closed&&lastPrompt)ws.send(JSON.stringify({...lastPrompt,type:'prompt'}));
+  ws.on('message',raw=>{
+    let message;try{message=JSON.parse(raw.toString());}catch{return;}
+    if(message.type==='start')return start(message.character);
+    if(message.type==='continue')return start({},true);
+    if(message.type==='settings'){worldInterval=Math.max(250,Math.min(3000,(Number(message.pulseTime)||.8)*1000));if(clock)clock.setInterval(worldInterval);if(session&&!session.closed)session.write({kind:'pace',value:worldInterval});return;}
+    if(!session||session.closed)return;
+    if(message.type==='action') {
+      const action={key:String(message.key||'.').slice(0,100),aim:typeof message.aim==='string'?message.aim.slice(0,1):null,movement:!!message.movement,running:!!message.running,crouching:!!message.crouching};
+      if(action.key==='S')clock.clearMovement();
+      if(!clock.enqueue(action))notice('Finish the current action before adding more commands.');
+    }
+    if(message.type==='release')clock.clearMovement();
+    if(message.type==='answer')session.answer(message.input||{kind:'key',value:27});
+    if(message.type==='cancel')session.cancel();
+  });
+});
+const tick=setInterval(()=>clock?.update(),16);
+server.listen(port,'127.0.0.1',()=>console.log(`NetHack: Descent is running at http://127.0.0.1:${port}\nEngine: ${executable}\nRenderer: ${production?'production':'development'}`));
+process.on('SIGINT',()=>{clearInterval(tick);session?.stop();wss.close();server.close();process.exit(0);});

@@ -1,0 +1,12 @@
+import { build } from 'esbuild';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await mkdir(path.join(root, 'dist'), { recursive: true });
+await build({ entryPoints: [path.join(root, 'src/main.js')], bundle: true, minify: true, sourcemap: true, outfile: path.join(root, 'dist/game.js'), format: 'esm', target: ['chrome110','firefox115','safari16'] });
+const html = (await readFile(path.join(root, 'index.html'), 'utf8')).replace(/<script type="importmap">[\s\S]*?<\/script>/, '').replace('/src/main.js', '/game.js').replace('/src/style.css', '/style.css');
+await writeFile(path.join(root, 'dist/index.html'), html);
+await cp(path.join(root, 'src/style.css'), path.join(root, 'dist/style.css'));
+await cp(path.join(root, '../dat/license'), path.join(root, 'dist/LICENSE.txt'));
+console.log('Built production renderer in port/dist. The local native engine server serves it automatically.');

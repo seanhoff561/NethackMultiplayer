@@ -1,0 +1,20 @@
+{
+  "name": "nethack-descent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "First-person real-time window port for the original NetHack engine",
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "playwright": "1.55.1"
+  }
+}

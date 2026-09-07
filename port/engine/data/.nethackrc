@@ -1,0 +1,2 @@
+OPTIONS=windowtype:shim,menustyle:full
+OPTIONS=!tutorial,!legacy,showexp,time,color,!autopickup,hilite_pet
