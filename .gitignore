@@ -105,3 +105,5 @@ sys/amiga/regex/
 /port/engine/build/
 /port/engine/*.lnk
 !/port/engine/bin/nethack-engine.exe
+
+!port/engine/bin/nethack-engine-spatial.exe

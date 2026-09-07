@@ -6,19 +6,21 @@ import {existsSync,readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync
 import {WebSocketServer,WebSocket} from 'ws';
 import {NativeSession} from './lib/native-session.mjs';
 import {RealtimeClock} from './lib/realtime.mjs';
-import {readCommands} from './lib/commands.mjs';
+import {readCommands,directionKey} from './lib/commands.mjs';
+import {SpatialSimulation} from './lib/spatial-simulation.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const repository=path.dirname(root);
-const port=Number(process.env.PORT)||5173;
-const production=existsSync(path.join(root,'dist/index.html')) && !process.argv.includes('--dev');
-const siteRoot=production?path.join(root,'dist'):root;
-const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine.exe');
-const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime');
+const port=Number(process.env.PORT)||5174;
+const production=existsSync(path.join(root,'dist-spatial/index.html')) && !process.argv.includes('--dev');
+const siteRoot=production?path.join(root,'dist-spatial'):root;
+const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-spatial.exe');
+const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-spatial');
 const commands=readCommands(path.join(repository,'src/cmd.c'));
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.map':'application/json'};
 const metadataFile=path.join(runtime,'descent-session.json');
 let session=null,clock=null,lastSnapshot=null,lastCharacter=null,lastPrompt=null,awaitingTurn=null,worldInterval=800;
+let spatial=new SpatialSimulation(),motionTicks=0,transitionAt=0,lastMeleeAt=0;
 if(existsSync(metadataFile)){try{lastCharacter=JSON.parse(readFileSync(metadataFile,'utf8'));}catch{}}
 const canContinue=()=>!!lastCharacter&&existsSync(path.join(runtime,lastCharacter.name+'.NetHack-saved-game'));
 const server=http.createServer((req,res)=>{
@@ -62,15 +64,26 @@ function start(character={},resume=false){
   // genl_prag stops at a non-option name argument, so identity must come last.
   const args=['-p',config.role,'-r',config.race,'-g',config.gender,'-a',config.alignment,'-u',config.name];
   session=new NativeSession({executable,cwd:runtime,args,env:{NH_TURN_MS:String(worldInterval)}});
-  lastPrompt=null;lastSnapshot=null;
-  clock=new RealtimeClock({act:action=>{awaitingTurn=session.snapshot?.actionSerial;session.act(action);},canAct:()=>session.ready&&!session.closed,interval:worldInterval});
+  const spatialFile=path.join(runtime,config.name+'.descent-spatial.json');
+  let restoredSpatial=null;
+  if(existsSync(path.join(runtime,config.name+'.NetHack-saved-game'))&&existsSync(spatialFile)){try{restoredSpatial=JSON.parse(readFileSync(spatialFile,'utf8'));}catch{}}
+  lastPrompt=null;lastSnapshot=null;spatial=new SpatialSimulation();
+  clock=new RealtimeClock({act:action=>{
+    spatial.project(session);
+    if(action.targetCell)action.aim=directionKey(action.targetCell.x-spatial.projected.x,action.targetCell.z-spatial.projected.z);
+    if(action.spatialMelee)action.melee=spatial.melee()||0;
+    awaitingTurn=session.snapshot?.actionSerial;session.act(action);
+  },canAct:()=>session.ready&&!session.closed,interval:worldInterval});
   session.on('ready',()=>{
     // Bumping a wall or using a free informational command cannot stop time.
     const previous=awaitingTurn;awaitingTurn=null;
     if(previous!==null&&session.ready&&session.snapshot?.actionSerial<=previous)session.act({key:'.',idle:true});
   });
   session.on('snapshot',snapshot=>{
+    spatial.accept(snapshot);
+    if(restoredSpatial){spatial.restore(restoredSpatial);restoredSpatial=null;}
     lastSnapshot=snapshot;broadcast(snapshot);
+    broadcast(spatial.packet());
     if(snapshot.player?.hp>0&&!clock.active)clock.start();
   });
   session.on('prompt',request=>{lastPrompt=request;broadcast({type:'prompt',...request,type:'prompt'});});
@@ -79,12 +92,16 @@ function start(character={},resume=false){
   session.on('diagnostic',text=>{console.log('[engine]',text.trim().slice(0,1200));});
   session.on('event',event=>{if(event.type!=='ended')broadcast(event);});
   session.on('failure',text=>{clock.stop();broadcast({type:'failure',text});});
-  session.on('ended',event=>{clock.stop();lastPrompt=null;broadcast({type:'ended',...event,saved:existsSync(path.join(runtime,config.name+'.NetHack-saved-game'))});});
+  session.on('ended',event=>{
+    clock.stop();lastPrompt=null;const saved=existsSync(path.join(runtime,config.name+'.NetHack-saved-game'));
+    if(saved)writeFileSync(spatialFile,JSON.stringify(spatial.serialize()));
+    broadcast({type:'ended',...event,saved});
+  });
   broadcast({type:'starting',character:config});session.start();
 }
 wss.on('connection',ws=>{
   ws.send(JSON.stringify({type:'hello',ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),commands}));
-  if(session&&!session.closed&&lastSnapshot)ws.send(JSON.stringify(lastSnapshot));
+  if(session&&!session.closed&&lastSnapshot){ws.send(JSON.stringify(lastSnapshot));ws.send(JSON.stringify(spatial.packet()));}
   if(session&&!session.closed&&lastPrompt)ws.send(JSON.stringify({...lastPrompt,type:'prompt'}));
   ws.on('message',raw=>{
     let message;try{message=JSON.parse(raw.toString());}catch{return;}
@@ -92,16 +109,35 @@ wss.on('connection',ws=>{
     if(message.type==='continue')return start({},true);
     if(message.type==='settings'){worldInterval=Math.max(250,Math.min(3000,(Number(message.pulseTime)||.8)*1000));if(clock)clock.setInterval(worldInterval);if(session&&!session.closed)session.write({kind:'pace',value:worldInterval});return;}
     if(!session||session.closed)return;
+    if(message.type==='input'){spatial.setInput(message);return;}
     if(message.type==='action') {
-      const action={key:String(message.key||'.').slice(0,100),aim:typeof message.aim==='string'?message.aim.slice(0,1):null,movement:!!message.movement,running:!!message.running,crouching:!!message.crouching};
-      if(action.key==='S')clock.clearMovement();
+      const action={key:String(message.key||'.').slice(0,100),aim:typeof message.aim==='string'?message.aim.slice(0,1):null,spatialMelee:!!message.melee,targetCell:message.targetCell&&Number.isFinite(message.targetCell.x)&&Number.isFinite(message.targetCell.z)?message.targetCell:null};
+      if(action.spatialMelee){
+        const now=performance.now();if(now-lastMeleeAt<450||spatial.blocked||!session.ready)return;
+        lastMeleeAt=now;spatial.project(session);session.act({key:'.',melee:spatial.melee()||0});return;
+      }
+      if(action.key==='S')clock.clearQueue();
       if(!clock.enqueue(action))notice('Finish the current action before adding more commands.');
     }
-    if(message.type==='release')clock.clearMovement();
+    if(message.type==='release')spatial.release();
     if(message.type==='answer')session.answer(message.input||{kind:'key',value:27});
     if(message.type==='cancel')session.cancel();
   });
+  ws.on('close',()=>spatial.release());
 });
-const tick=setInterval(()=>clock?.update(),16);
+let lastTick=performance.now(),accumulator=0;
+const tick=setInterval(()=>{
+  const now=performance.now();accumulator+=Math.min(.1,(now-lastTick)/1000);lastTick=now;
+  if(!session||session.closed||!spatial.player){accumulator=0;return;}
+  while(accumulator>=1/60){
+    const stairs=spatial.update(1/60);accumulator-=1/60;
+    if(stairs){transitionAt=now;clock.enqueue({key:stairs});}
+  }
+  // Refused stairs (burden, missing pet, surface exit) must remain reversible.
+  if(spatial.transition&&now-transitionAt>3500){spatial.transition=false;}
+  if(++motionTicks%6===0)spatial.project(session);
+  if(motionTicks%2===0)broadcast(spatial.packet());
+  clock?.update();
+},1000/60);
 server.listen(port,'127.0.0.1',()=>console.log(`NetHack: Descent is running at http://127.0.0.1:${port}\nEngine: ${executable}\nRenderer: ${production?'production':'development'}`));
 process.on('SIGINT',()=>{clearInterval(tick);session?.stop();wss.close();server.close();process.exit(0);});

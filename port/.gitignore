@@ -6,3 +6,8 @@ engine/obj/
 test-results/
 .server.log
 .server-errors.log
+
+dist-spatial/
+engine/runtime-spatial/
+.spatial-server.log
+.spatial-server-errors.log

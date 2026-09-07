@@ -1750,6 +1750,16 @@ m_move(struct monst *mtmp, int after)
             finish_meating(mtmp);
         return MMOVE_DONE; /* still eating */
     }
+
+#ifdef DESCENT_SPATIAL
+    /* Descent (2026-09-07): continuous server steering owns locomotion.
+       Keep trap/eating timers above and the caller's native attacks below. */
+    set_apparxy(mtmp);
+    if (mtmp->mtame)
+        return dog_move(mtmp, after);
+    { int result = postmov(mtmp, ptr, omx, omy, MMOVE_DONE, 0, FALSE, FALSE, FALSE);
+      return result == MMOVE_DIED ? MMOVE_DIED : MMOVE_NOTHING; }
+#endif
     if (hides_under(ptr) && OBJ_AT(mtmp->mx, mtmp->my)
         && can_hide_under_obj(svl.level.objects[mtmp->mx][mtmp->my])
         && rn2(10))

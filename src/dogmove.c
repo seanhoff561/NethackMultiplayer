@@ -1042,6 +1042,11 @@ dog_move(
         whappr = 0;
 
     appr = dog_goal(mtmp, edog, after, udist, whappr);
+#ifdef DESCENT_SPATIAL
+    /* Descent (2026-09-07): preserve native pet food/fetch/follow goals. */
+    { extern void descent_set_goal(struct monst *, int, int);
+      descent_set_goal(mtmp, gg.gx, gg.gy); }
+#endif
     if (appr == -2)
         return MMOVE_NOTHING;
 
@@ -1120,6 +1125,11 @@ dog_move(
              */
             int balk = mtmp->m_lev + ((5 * mtmp->mhp) / mtmp->mhpmax) - 2;
 
+#ifdef DESCENT_SPATIAL
+            { extern int descent_actors_in_reach(struct monst *, struct monst *);
+              if (!descent_actors_in_reach(mtmp, mtmp2)) continue; }
+#endif
+
             if ((int) mtmp2->m_lev >= balk
                 || (mtmp2->mtame && mtmp->mtame && !Conflict)
                 || (max_passive_dmg(mtmp2, mtmp) >= mtmp->mhp)
@@ -1172,6 +1182,9 @@ dog_move(
         }
         if ((mfp.info[i] & ALLOW_MDISP) && MON_AT(nx, ny)
             && better_with_displacing && !undesirable_disp(mtmp, nx, ny)) {
+#ifdef DESCENT_SPATIAL
+            continue; /* Continuous body steering handles passing companions. */
+#endif
             int mstatus;
             struct monst *mtmp2 = m_at(nx, ny);
 
@@ -1276,6 +1289,10 @@ dog_move(
         return i;
 
  newdogpos:
+#ifdef DESCENT_SPATIAL
+    /* Keep the rules above; leave translation to the continuous controller. */
+    return MMOVE_NOTHING;
+#endif
     if (nix != omx || niy != omy) {
         boolean wasseen;
 

@@ -15,12 +15,12 @@ test('blocked engine does not accumulate catch-up actions',()=>{
   clock.start(); time=30000; clock.update(); assert.equal(actions.length,0);
   ready=true; clock.update(); clock.update(); assert.equal(actions.length,1);
 });
-test('movement release clears queued movement, preserves explicit actions',()=>{
+test('save can supersede queued commands and command queue remains bounded',()=>{
   const clock=new RealtimeClock({act:()=>{},canAct:()=>true});
-  clock.enqueue({key:'h',movement:true});clock.enqueue({key:'j',movement:true});clock.enqueue({key:'e'});
-  assert.equal(clock.queue.length,2);clock.clearMovement();assert.deepEqual(clock.queue,[{key:'e'}]);
+  for(let i=0;i<8;i++)assert.equal(clock.enqueue({key:'e'}),true);
+  assert.equal(clock.enqueue({key:'e'}),false);clock.clearQueue();clock.enqueue({key:'S'});assert.deepEqual(clock.queue,[{key:'S'}]);
 });
-test('heading and movement use NetHack eight-way keys',()=>{
+test('legacy directional commands retain native eight-way selection',()=>{
   assert.deepEqual(headingDirection(0),[0,-1]); assert.deepEqual(headingDirection(Math.PI/2),[-1,0]);
   assert.equal(directionKey(...headingDirection(-Math.PI/2)),'l'); assert.equal(directionKey(-1,1),'b');
 });

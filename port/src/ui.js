@@ -229,7 +229,7 @@ export class GameUI {
     set('#player-name', p.name);
     set('#player-class', `${p.role || 'Adventurer'} · Level ${p.level ?? 1}`);
     set('#location-name', p.dungeon || snapshot.dungeon || 'Dungeons of Doom');
-    set('#location-detail', `Depth ${p.depth ?? snapshot.depth ?? 1}${p.turn !== undefined ? ` · ${p.turn} moments survived` : ''}`);
+    set('#location-detail', `Depth ${p.depth ?? snapshot.depth ?? 1}${snapshot.elapsed !== undefined ? ` · ${Math.floor(snapshot.elapsed/60)}:${String(Math.floor(snapshot.elapsed%60)).padStart(2,'0')} survived` : ''}`);
     set('#armor-value', p.ac);
     set('#gold-value', Number(p.gold || 0).toLocaleString());
     const hunger = p.conditions?.length ? p.conditions.slice(0,2).join(' · ') : p.hunger === undefined || p.hunger === '' ? 'Ready' : p.hunger;
@@ -444,7 +444,7 @@ export class GameUI {
     const body = `<div class="settings-intro">Make the dungeon your own.</div>${[
       ['volume', 'Sound volume', 'The sounds of the dungeon.', 0, 1, .05],
       ['sensitivity', 'Look sensitivity', 'How quickly the camera follows your mouse.', .1, 2, .05],
-      ['pulseTime', 'World rhythm', 'Seconds between world updates. Lower is faster.', .3, 2, .1],
+      ['pulseTime', 'Dungeon tempo', 'Pace of hunger, recovery and creature attacks. Movement remains continuous.', .3, 2, .1],
     ].map(([key, label, description, min, max, step]) => `<label class="setting-row"><div><strong>${label}</strong><small>${description}</small></div><output id="setting-value-${key}">${key === 'pulseTime' ? Number(this.settings[key]).toFixed(1) + 's' : Math.round(this.settings[key] * 100) + '%'}</output><input type="range" data-setting="${key}" value="${this.settings[key]}" min="${min}" max="${max}" step="${step}" aria-label="${label}"></label>`).join('')}<div class="panel-footer"><span>Settings are saved on this device.</span><button class="text-button" id="settings-reset">Reset defaults</button></div>`;
     this.openPanel('settings', 'In your hands', body, { centered: this.mode === 'title', overline: 'SETTINGS' });
     this.$('#panel-layer').querySelectorAll('[data-setting]').forEach(input => input.addEventListener('input', () => {

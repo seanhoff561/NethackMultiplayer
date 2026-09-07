@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT} from './spatial.js';
 
 const CELL = 3;
 const WALL_HEIGHT = 3.65;
@@ -39,7 +40,7 @@ function stoneTexture(floor = false) {
     const h = size / rows;
     const w = size / columns;
     for (let row = 0; row < rows; row++) {
-      const offset = !floor && row % 2 ? -w / 2 : 0;
+      const offset = row % 2 ? -w / 2 : 0;
       for (let column = -1; column <= columns; column++) {
         const x = column * w + offset;
         const y = row * h;
@@ -118,7 +119,7 @@ function shadowTexture() {
   }, 64);
 }
 
-/** A spatial presentation of the engine's visible map; all game rules live in NetHack. */
+/** First-person rendering of shared architectural geometry and continuous bodies. */
 export class DungeonRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -161,8 +162,8 @@ export class DungeonRenderer {
     this.items = new THREE.Group();
     this.scene.add(this.world, this.creatures, this.items);
 
-    this.scene.add(new THREE.HemisphereLight(0x8fa9a3, 0x272318, 0.76));
-    this.scene.add(new THREE.AmbientLight(0x77858a, 0.18));
+    this.scene.add(new THREE.HemisphereLight(0x8fa9a3, 0x272318, 0.3));
+    this.scene.add(new THREE.AmbientLight(0x77858a, 0.08));
     this.lantern = new THREE.PointLight(0xffd8a2, 17, 15, 1.5);
     this.scene.add(this.lantern);
     this.headlight = new THREE.SpotLight(0xf5e3bd, 10, 22, 0.9, 0.9, 1.4);
@@ -274,15 +275,16 @@ export class DungeonRenderer {
     if (levelChanged) {
       this.creatures.clear(); this.items.clear(); this.monsters.clear(); this.pickups.clear();
     }
-    this._updateEntities(tiles);
+    this._updateEntities(snapshot.actors?tiles.map(t=>({...t,monster:null})).concat(snapshot.actors.map(m=>({x:m.x,y:m.y,monster:m,char:m.symbol}))):tiles);
     if (!this.cameraPlaced && snapshot.player) {
       this.setPose({ x: snapshot.player.x + 0.5, y: snapshot.player.y + 0.5, yaw: this.pose.yaw, pitch: 0 });
     }
   }
 
   _buildTerrain(tiles) {
-    this.world.traverse(object => { if (object.isInstancedMesh) object.dispose(); });
+    this.world.traverse(object => { if (object.isInstancedMesh) object.dispose(); if(object.userData.terrainGeometry)object.geometry.dispose(); });
     this.world.clear(); this.torches = []; this.features = [];
+    this.collision=new CollisionWorld(tiles);
     const grid = new Map(tiles.map(tile => [`${tile.x},${tile.y}`, tile]));
     const typeAt = (x, y) => grid.get(`${x},${y}`)?.type || 'unknown';
     const floors = [], walls = [], ceilings = [], trims = [], posts = [], water = [], lava = [];
@@ -309,14 +311,14 @@ export class DungeonRenderer {
       if(type==='corridor')for(const [dx,dy] of directions)if(typeAt(tile.x+dx,tile.y+dy)==='unknown') {
         walls.push({p:[x+dx*1.55,WALL_HEIGHT/2,z+dy*1.55],s:[dx?.12:CELL,WALL_HEIGHT,dy?.12:CELL],c:variance*.85});
       }
-      if (type !== 'stairs_down') floors.push({ p: [x, floorHeight, z], s: [CELL, 0.22, CELL], c: variance });
-      ceilings.push({ p: [x, WALL_HEIGHT + 0.1, z], s: [CELL, 0.2, CELL], c: variance * 0.8 });
+      if (!type.startsWith('stairs_')) floors.push({ p: [x, floorHeight, z], s: [CELL, 0.22, CELL], c: variance });
+      if(!type.startsWith('stairs_'))ceilings.push({ p: [x, WALL_HEIGHT + 0.1, z], s: [CELL, 0.2, CELL], c: variance * 0.8 });
       if (type === 'water') water.push({ p: [x, -0.045, z], s: [2.99, 0.035, 2.99] });
       if (type === 'lava') lava.push({ p: [x, -0.045, z], s: [2.99, 0.035, 2.99] });
       if (type === 'door' || type === 'door_open') {
         const northSouth = ['wall', 'stone'].includes(typeAt(tile.x - 1, tile.y)) || ['wall', 'stone'].includes(typeAt(tile.x + 1, tile.y));
         this._door(x, z, !northSouth, type === 'door_open');
-      } else if (type === 'stairs_up' || type === 'stairs_down') this._stairs(x, z, type === 'stairs_up');
+      } else if (type === 'stairs_up' || type === 'stairs_down') this._stairs(this.collision.stairs.find(s=>s.cellX===tile.x&&s.cellZ===tile.y));
       else if (type === 'fountain') this._fountain(x, z);
       else if (type === 'altar') this._altar(x, z);
       else if (type === 'tree') this._tree(x, z, tile.x + tile.y);
@@ -343,9 +345,9 @@ export class DungeonRenderer {
         trims.push({ p: [x, WALL_HEIGHT - 0.15, z], s: alongZ ? [CELL, 0.3, 0.23] : [0.23, 0.3, CELL], c: 0.65 });
       }
     }
-    this._instances(this.world, floors, this.floorMaterial);
-    this._instances(this.world, walls, this.wallMaterial);
-    this._instances(this.world, ceilings, this.ceilingMaterial);
+    this._surfaces(mergeSurfaces(tiles,t=>OPEN_TYPES.has(t.type)&&!t.type.startsWith('stairs_')&&!['water','lava'].includes(t.type)), -.11,.22,this.floorMaterial);
+    this._surfaces(mergeSurfaces(tiles,t=>['wall','stone'].includes(t.type)),WALL_HEIGHT/2,WALL_HEIGHT,this.wallMaterial);
+    this._surfaces(mergeSurfaces(tiles,t=>OPEN_TYPES.has(t.type)&&!t.type.startsWith('stairs_')),WALL_HEIGHT+.1,.2,this.ceilingMaterial);
     this._instances(this.world, trims, this.wallMaterial);
     this._instances(this.world, posts, this.wallMaterial);
     this._instances(this.world, water, this.waterMaterial);
@@ -376,25 +378,74 @@ export class DungeonRenderer {
     }
   }
 
-  _stairs(x, z, up) {
-    const group = new THREE.Group(); group.position.set(x, 0, z); this.world.add(group);
-    if(up)group.scale.y=.48;
-    if (!up) {
-      this.mesh(group, 'box', 0x080d0e, [0, -1.24, 0], [2.4, 0.05, 2.75]);
-      for (const side of [-1, 1]) this.mesh(group, 'box', this.wallMaterial, [side * 1.28, -0.22, 0], [0.45, 0.6, 3]);
+  _surfaces(rectangles,y,height,material) {
+    const positions=[],normals=[],uvs=[],indices=[];
+    for(const r of rectangles){
+      const g=new THREE.BoxGeometry(r.w,height,r.h);g.translate(r.x+r.w/2,y,r.z+r.h/2);
+      const p=g.attributes.position,n=g.attributes.normal,base=positions.length/3;
+      for(let i=0;i<p.count;i++){
+        const x=p.getX(i),z=p.getZ(i),yy=p.getY(i),nx=n.getX(i),ny=n.getY(i),nz=n.getZ(i);
+        positions.push(x,yy,z);normals.push(nx,ny,nz);
+        uvs.push((Math.abs(nx)>.5?z:x)/3,(Math.abs(ny)>.5?z:yy)/3);
+      }
+      for(const i of g.index.array)indices.push(base+i);g.dispose();
     }
-    for (let i = 0; i < 7; i++) {
-      const height = up ? (i + 1) * 0.22 : -(i + 1) * 0.18;
-      this.mesh(group, 'box', this.floorMaterial, [0, height - 0.13, 1.25 - i * 0.38], [2.1, 0.25, 0.4]);
+    if(!positions.length)return;
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+    geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));geometry.setIndex(indices);geometry.computeBoundingSphere();
+    const mesh=new THREE.Mesh(geometry,material);mesh.userData.terrainGeometry=true;mesh.castShadow=mesh.receiveShadow=true;this.world.add(mesh);
+  }
+
+  _stoneBox(parent,material,position,scale) {
+    const g=new THREE.BoxGeometry(...scale),p=g.attributes.position,n=g.attributes.normal,uv=g.attributes.uv;
+    for(let i=0;i<p.count;i++)uv.setXY(i,(Math.abs(n.getX(i))>.5?p.getZ(i):p.getX(i))/3,(Math.abs(n.getY(i))>.5?p.getZ(i):p.getY(i))/3);
+    const mesh=new THREE.Mesh(g,material);mesh.position.set(...position);mesh.castShadow=mesh.receiveShadow=true;mesh.userData.terrainGeometry=true;parent.add(mesh);return mesh;
+  }
+
+  _stairs(stair) {
+    if(!stair)return;
+    const {x,z,sign,angle}=stair,H=FLOOR_HEIGHT;
+    const group=new THREE.Group();group.position.set(x,0,z);group.rotation.y=angle;this.world.add(group);
+    const low=sign>0?0:-H,high=sign>0?H+WALL_HEIGHT:WALL_HEIGHT;
+    for(const side of [-1,1])this._stoneBox(group,this.wallMaterial,[side*1.47,(low+high)/2,0],[.16,high-low,3]);
+    this._stoneBox(group,this.wallMaterial,[0,(low+high)/2,-1.47],[3,high-low,.16]);
+    this._stoneBox(group,this.wallMaterial,[0,(low+high)/2,.425],[.16,high-low,2.15]);
+    this._stoneBox(group,this.ceilingMaterial,[0,high+.08,0],[3,.16,3]);
+    // The first flight and the return flight meet on a full-width landing.
+    const count=12,run=2.15/count,rise=H/2/count;
+    for(let i=0;i<count;i++){
+      const y1=sign*(i+.5)*rise,y2=sign*(H/2+(i+.5)*rise);
+      this._stoneBox(group,this.floorMaterial,[-.775,y1-.11,1.5-(i+.5)*run],[1.39,.22,run+.006]);
+      this._stoneBox(group,this.floorMaterial,[.775,y2-.11,-.65+(i+.5)*run],[1.39,.22,run+.006]);
+      for(const [sx,sy,sz] of [[-.775,y1,1.5-(i+.5)*run],[.775,y2,-.65+(i+.5)*run]])
+        this.mesh(group,'box',this.material(0x938771,.3,.7),[sx,sy+.004,sz+run*.45],[1.32,.025,.026]);
     }
-    if (up) {
-      for (const side of [-1, 1]) {
-        this.mesh(group, 'box', this.wallMaterial, [side * 1.23, 0.65, 0], [0.27, 1.3, 2.9]);
-        this.bone(group, [side * 1.23, 0.75, 1.22], [side * 1.23, 2.04, -1.2], 0.07, this.material(0x6e6751));
+    this._stoneBox(group,this.floorMaterial,[0,sign*H/2-.11,-1.06],[2.78,.22,.83]);
+    const rail=this.material(0x6e6652,.65,.4);
+    for(const side of [-1,1]){
+      const xx=side*1.25,start=side<0?0:H/2,end=side<0?H/2:H;
+      const z1=side<0?1.45:-.65,z2=side<0?-.65:1.45;
+      this.bone(group,[xx,sign*start+.9,z1],[xx,sign*end+.9,z2],.04,rail);
+      for(let i=0;i<4;i++){
+        const t=i/3,h=sign*(start+(end-start)*t),zz=z1+(z2-z1)*t;
+        this.bone(group,[xx,h,zz],[xx,h+.9,zz],.028,rail);
       }
     }
-    const marker = this.mesh(group, 'torus', this.material(0xb79a57, 0.7, 0.4), [0, up ? 1.68 : 0.02, -1.19], [0.48, 0.48, 0.1], up ? [0, 0, 0] : [-Math.PI / 2, 0, 0]);
-    marker.userData.stair = true;
+    const lamp=new THREE.PointLight(0xffbd79,7,7,1.8);lamp.position.set(0,sign*H/2+1.7,-1.15);group.add(lamp);
+    const flame=new THREE.Sprite(this.flameMaterial);flame.position.copy(lamp.position);flame.scale.set(.3,.55,.3);group.add(flame);
+    // A dark opening beyond the final landing gives the connection real depth.
+    this._stoneBox(group,this.wallMaterial,[.77,sign*H+2.9,1.49],[1.4,.35,.18]);
+  }
+
+  setMotion(packet) {
+    this.motion=packet;
+    for(const actor of packet.actors||[]) {
+      const entity=this.monsters.get(`id:${actor.id}`);if(!entity)continue;
+      entity.spatial=true;entity.moving=actor.moving;entity.yaw=actor.yaw;entity.group.visible=actor.visible!==false;
+      entity.target.set(actor.x,actor.y||0,actor.z);
+    }
   }
 
   _torch(x, z, rotation, phase) {
@@ -506,7 +557,7 @@ export class DungeonRenderer {
   _updateEntities(tiles) {
     const presentMonsters = new Set(), presentItems = new Set(), counts = new Map();
     for (const tile of tiles) {
-      if (tile.monster && !(tile.x === this.snapshot.player?.x && tile.y === this.snapshot.player?.y)) {
+      if (tile.monster) {
         const data = typeof tile.monster === 'string' ? { name: tile.monster } : tile.monster;
         const name = data.name || data.description || tile.description || 'creature';
         const ordinal = counts.get(name) || 0; counts.set(name, ordinal + 1);
@@ -520,7 +571,8 @@ export class DungeonRenderer {
           entity = { group, target: group.position.clone(), phase: hash(tile.x, tile.y, 42) * 6.28, name };
           this.monsters.set(key, entity);
         }
-        entity.target.set((tile.x + 0.5) * CELL, 0, (tile.y + 0.5) * CELL);
+        if(!entity.spatial)entity.target.set((tile.x + 0.5) * CELL, 0, (tile.y + 0.5) * CELL);
+        entity.group.visible=data.visible!==false;
       }
       if (tile.object) {
         const data = typeof tile.object === 'string' ? { name: tile.object } : tile.object;
@@ -884,7 +936,7 @@ export class DungeonRenderer {
     this.bobPhase+=dt*(p.running?12:8);const bob=Math.sin(this.bobPhase)*.025*this.motionBlend;
     const eyeHeight=p.crouch?1.02:1.67;
     this.eyeHeight=THREE.MathUtils.lerp(this.eyeHeight??eyeHeight,eyeHeight,Math.min(1,dt*10));
-    this.camera.position.set(p.x*CELL,this.eyeHeight+bob,p.y*CELL);
+    this.camera.position.set(p.x*CELL,(p.elevation||0)+this.eyeHeight+bob,p.y*CELL);
     this.camera.rotation.set(p.pitch+this.damageKick,p.yaw,Math.sin(this.bobPhase*.5)*.003*this.motionBlend);
     this.damageKick*=Math.exp(-dt*9);
     this.lantern.position.copy(this.camera.position);this.lantern.position.y-=.3;
@@ -897,10 +949,10 @@ export class DungeonRenderer {
     this.torchLights.forEach((light,i)=>{const torch=nearby[i];light.intensity=torch?18+Math.sin(this.time*13+torch.phase)*2.1:0;if(torch)light.position.copy(torch.point);});
     for(const torch of this.torches){torch.flame.scale.set(1+Math.sin(this.time*19+torch.phase)*.1,1+Math.sin(this.time*11+torch.phase)*.13,1);torch.flame.rotation.z=Math.sin(this.time*9+torch.phase)*.08;}
     for(const entity of this.monsters.values()){
-      const g=entity.group,travel=g.position.distanceTo(entity.target);g.position.lerp(entity.target,Math.min(1,dt*5));
+      const g=entity.group,travel=g.position.distanceTo(entity.target);g.position.lerp(entity.target,1-Math.exp(-dt*18));
       const body=g.userData.body;if(body)body.position.y=Math.sin(this.time*(g.userData.hover?2.4:3)+entity.phase)*(g.userData.hover?.12:.012);
-      const desired=Math.atan2(this.camera.position.x-g.position.x,this.camera.position.z-g.position.z);g.rotation.y+=Math.atan2(Math.sin(desired-g.rotation.y),Math.cos(desired-g.rotation.y))*Math.min(1,dt*4);
-      (g.userData.legs||[]).forEach((leg,i)=>leg.rotation.x=Math.sin(this.time*9+entity.phase+i*Math.PI)*Math.min(.45,travel*.7));
+      const desired=entity.moving&&Number.isFinite(entity.yaw)?entity.yaw:Math.atan2(this.camera.position.x-g.position.x,this.camera.position.z-g.position.z);g.rotation.y+=Math.atan2(Math.sin(desired-g.rotation.y),Math.cos(desired-g.rotation.y))*Math.min(1,dt*6);
+      (g.userData.legs||[]).forEach((leg,i)=>leg.rotation.x=Math.sin(this.time*9+entity.phase+i*Math.PI)*(entity.moving?.4:Math.min(.45,travel*.7)));
       (g.userData.wings||[]).forEach((wing,i)=>wing.rotation.z=Math.sin(this.time*9+entity.phase)*.45*(i?1:-1));
       if(g.userData.slime)body.scale.y=1+Math.sin(this.time*2+entity.phase)*.08;
     }

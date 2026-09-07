@@ -32,6 +32,28 @@ static int message_count = 0, next_window = 1, snapshot_guard = 0;
 static char wire_line[16384];
 static int turn_ms = 800;
 static unsigned long action_serial = 0;
+static unsigned long spatial_serial = 0;
+static double player_x = 0, player_z = 0, player_height = 0;
+typedef struct SpatialActor { unsigned id; double x,z,y; int gx,gz,can_hit; } SpatialActor;
+static SpatialActor spatial_actors[4096];
+static SpatialActor *actor_position(struct monst *mon) {
+    SpatialActor *p = &spatial_actors[mon->m_id % 4096];
+    if (p->id != mon->m_id) { p->id=mon->m_id; p->x=(mon->mx+.5)*3; p->z=(mon->my+.5)*3; p->y=0;p->gx=0;p->gz=0;p->can_hit=1; }
+    return p;
+}
+void descent_set_goal(struct monst *mon,int x,int z) { SpatialActor *p=actor_position(mon);p->gx=x;p->gz=z; }
+int descent_actors_in_reach(struct monst *one,struct monst *two) {
+    SpatialActor *a=actor_position(one),*b=actor_position(two);
+    double dx=a->x-b->x,dz=a->z-b->z,dy=a->y-b->y;
+    return dx*dx+dz*dz<3.4225&&dy*dy<2.25;
+}
+/* The C rules resolve damage, while reach is measured in metres. */
+int descent_in_reach(struct monst *mon) {
+    SpatialActor *p=actor_position(mon);
+    double dx=p->x-player_x,dz=p->z-player_z,dy=p->y-player_height;
+    if(!spatial_serial)return 1;
+    return p->can_hit && dx*dx+dz*dz<3.4225 && dy*dy<2.25;
+}
 
 static void json_string(const char *s) {
     const unsigned char *p = (const unsigned char *)(s ? s : "");
@@ -59,7 +81,7 @@ static void add_message(const char *s) {
     message_ids[message_count++] = next_message++;
 }
 static const char *terrain(int x, int y) {
-    int typ = svl.lastseentyp[x][y];
+    int typ = levl[x][y].typ;
     int g = painted[x][y] ? drawn[x][y].glyph : levl[x][y].glyph;
     int cm = glyph_to_cmap(g);
     if (typ == STONE || typ == SCORR) return "stone";
@@ -67,8 +89,7 @@ static const char *terrain(int x, int y) {
     if (typ == TREE) return "tree";
     if (typ == IRONBARS) return "bars";
     if (typ == DOOR) {
-        if (cansee(x,y)) return (levl[x][y].doormask & (D_CLOSED | D_LOCKED)) ? "door-closed" : "door-open";
-        return (cm == S_vcdoor || cm == S_hcdoor) ? "door-closed" : "door-open";
+        return (levl[x][y].doormask & (D_CLOSED | D_LOCKED)) ? "door-closed" : "door-open";
     }
     if (typ == CORR) return "corridor";
     if (typ == STAIRS || typ == LADDER) {
@@ -107,17 +128,17 @@ static void snapshot(void) {
     CONDITION(Sick, "Sick"); CONDITION(u.utrap, "Trapped"); CONDITION(u.uswallow, "Swallowed");
     fputs("],\"weapon\":", stdout); json_string(uwep ? doname(uwep) : "bare hands");
     fputs(",\"shield\":", stdout); json_string(uarms ? doname(uarms) : "");
-    printf("},\"actionSerial\":%lu,\"tiles\":[", action_serial); first = 1;
+    printf(",\"immobile\":%s,\"speedScale\":%.2f},\"spatialSerial\":%lu,\"actionSerial\":%lu,\"tiles\":[", (u.utrap || u.uswallow || gm.multi<0 || go.occupation) ? "true":"false", Very_fast ? 1.5 : Fast ? 1.25 : 1.0, spatial_serial, action_serial); first = 1;
     for (y = 0; y < ROWNO; y++) for (x = 1; x < COLNO; x++) {
         glyph_info info;
         const char *type;
         int g, cm;
-        if (!levl[x][y].seenv && !(x == u.ux && y == u.uy)) continue;
         info = drawn[x][y];
         if (!painted[x][y]) map_glyphinfo(x, y, levl[x][y].glyph, 0, &info);
         g = info.glyph; cm = glyph_to_cmap(g); type = terrain(x,y);
         if (!first) putchar(','); first = 0;
         printf("{\"x\":%d,\"y\":%d,\"type\":", x, y); json_string(type);
+        printf(",\"seen\":%s,\"explored\":%s",levl[x][y].seenv?"true":"false",levl[x][y].seenv?"true":"false");
         printf(",\"glyph\":%d,\"char\":", g); json_char(info.ttychar);
         printf(",\"color\":%d,\"visible\":%s,\"lit\":%s,\"description\":", info.gm.sym.color, cansee(x,y) ? "true":"false", levl[x][y].lit ? "true":"false"); json_string(type);
         if (glyph_is_monster(g) && !(x == u.ux && y == u.uy)) {
@@ -127,13 +148,27 @@ static void snapshot(void) {
             json_string(mn < NUMMONS ? mons[mn].pmnames[NEUTRAL] : "creature");
             printf(",\"symbol\":"); json_char(mn < NUMMONS ? def_monsyms[(int)mons[mn].mlet].sym : '?');
             printf(",\"color\":%d,\"size\":%d,\"tame\":%s,\"peaceful\":%s,\"visible\":%s}", mn < NUMMONS ? mons[mn].mcolor : 7, mn < NUMMONS ? mons[mn].msize : 2, glyph_is_pet(g) ? "true":"false", mon && canseemon(mon) && mon->mpeaceful ? "true":"false", mon && canseemon(mon) ? "true":"false");
-        } else if (glyph_is_object(g)) {
-            int oi = glyph_to_obj(g);
+        } else if (svl.level.objects[x][y]) {
+            int oi = svl.level.objects[x][y]->otyp;
             fputs(",\"object\":{\"index\":", stdout); printf("%d,\"name\":", oi); json_string(simple_typename(oi));
             printf(",\"class\":%d,\"symbol\":", objects[oi].oc_class); json_char(def_oc_syms[(int)objects[oi].oc_class].sym); putchar('}');
         }
         if (glyph_is_trap(g)) { fputs(",\"trap\":true", stdout); }
         putchar('}');
+    }
+    fputs("],\"actors\":[", stdout); first = 1;
+    {
+        struct monst *mon;
+        for(mon=fmon;mon;mon=mon->nmon) {
+            int mn;
+            if(DEADMONSTER(mon)||!isok(mon->mx,mon->my))continue;
+            mn=monsndx(mon->data);
+            if(!first)putchar(',');first=0;
+            printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"index\":%d,\"name\":",mon->m_id,mon->mx,mon->my,mn);
+            json_string(mon->data->pmnames[NEUTRAL]);fputs(",\"symbol\":",stdout);json_char(def_monsyms[(int)mon->data->mlet].sym);
+            { SpatialActor *p=actor_position(mon);printf(",\"goalX\":%d,\"goalZ\":%d",p->gx,p->gz); }
+            printf(",\"color\":%d,\"size\":%d,\"speed\":%d,\"tame\":%s,\"peaceful\":%s,\"canMove\":%s,\"sleeping\":%s,\"fleeing\":%s,\"stationary\":%s,\"visible\":%s}",mon->data->mcolor,mon->data->msize,mon->data->mmove,mon->mtame?"true":"false",mon->mpeaceful?"true":"false",mon->mcanmove&&!mon->mtrapped&&!mon->meating?"true":"false",mon->msleeping?"true":"false",mon->mflee?"true":"false",mon->isshk||mon->ispriest||mon->isgd?"true":"false",!mon->mundetected&&mon->m_ap_type==M_AP_NOTHING&&(!mon->minvis||See_invisible)?"true":"false");
+        }
     }
     fputs("],\"inventory\":[", stdout); first = 1;
     for (obj = gi.invent; obj; obj = obj->nobj) {
@@ -148,14 +183,57 @@ static void snapshot(void) {
     fputs("]}\n", stdout); fflush(stdout); snapshot_guard = 0;
 }
 static char *read_wire(void) {
-    do {
+    for (;;) {
         if (!fgets(wire_line, sizeof(wire_line), stdin)) exit(0);
         wire_line[strcspn(wire_line, "\r\n")] = 0;
         if (wire_line[0] == 'p' && wire_line[1] == ' ') {
             turn_ms = atoi(wire_line + 2);
             if (turn_ms < 250) turn_ms = 250; if (turn_ms > 3000) turn_ms = 3000;
+            continue;
         }
-    } while (wire_line[0] == 'p' && wire_line[1] == ' ');
+        if(wire_line[0]=='v' && wire_line[1]==' ') {
+            unsigned long serial; int dnum,dlevel,ax=0,az=0,count; double px,pz,py;
+            count=sscanf(wire_line+2,"%lu %d %d %lf %lf %lf %d %d",&serial,&dnum,&dlevel,&px,&pz,&py,&ax,&az);
+            if(count>=6 && dnum==u.uz.dnum && dlevel==u.uz.dlevel) {
+                int x=count==8?ax:(int)(px/3),y=count==8?az:(int)(pz/3);
+                spatial_serial=serial;
+                if(isok(x,y)&&!IS_OBSTRUCTED(levl[x][y].typ)&&!(levl[x][y].typ==DOOR&&(levl[x][y].doormask&(D_CLOSED|D_LOCKED)))&&!u.utrap&&!u.uswallow&&gm.multi>=0&&!go.occupation) {
+                    /* Bodies may share an authored cell. Keep the legacy
+                       occupancy map valid without relocating the 3D body. */
+                    struct monst *occupant=m_at(x,y);
+                    if(occupant&&occupant!=u.usteed) {
+                        coord cc;
+                        if(!enexto(&cc,x,y,occupant->data))continue;
+                        (void)actor_position(occupant);
+                        remove_monster(x,y);place_monster(occupant,cc.x,cc.y);newsym(cc.x,cc.y);
+                    }
+                    player_x=px;player_z=pz;player_height=py;
+                    if(x!=u.ux||y!=u.uy) {
+                        u.ux0=u.ux;u.uy0=u.uy;u_on_newpos(x,y);vision_recalc(0);spoteffects(TRUE);newsym(u.ux0,u.uy0);newsym(u.ux,u.uy);
+                        snapshot();
+                    }
+                }
+            }
+            continue;
+        }
+        if(wire_line[0]=='n' && wire_line[1]==' ') {
+            unsigned id;double px,pz,py;int can_hit=1;struct monst *mon;
+            if(sscanf(wire_line+2,"%u %lf %lf %lf %d",&id,&px,&pz,&py,&can_hit)>=4)for(mon=fmon;mon;mon=mon->nmon)if(mon->m_id==id&&!DEADMONSTER(mon)) {
+                int x=(int)(px/3),y=(int)(pz/3);SpatialActor *p=actor_position(mon);
+                p->x=px;p->z=pz;p->y=py;p->can_hit=can_hit;
+                if(isok(x,y)&&!IS_OBSTRUCTED(levl[x][y].typ)&&(!m_at(x,y)||m_at(x,y)==mon)&&(x!=u.ux||y!=u.uy)&&(x!=mon->mx||y!=mon->my)&&mon->mcanmove&&!mon->msleeping) {
+                    int ox=mon->mx,oy=mon->my;
+                    if(m_in_out_region(mon,x,y)) {
+                        remove_monster(ox,oy);place_monster(mon,x,y);newsym(ox,oy);newsym(x,y);set_apparxy(mon);
+                        (void)mintrap(mon,NO_TRAP_FLAGS);
+                    }
+                }
+                break;
+            }
+            continue;
+        }
+        break;
+    }
     return strlen(wire_line) >= 2 ? wire_line + 2 : wire_line + strlen(wire_line);
 }
 static void request(const char *kind, const char *prompt) {
@@ -164,7 +242,18 @@ static void request(const char *kind, const char *prompt) {
 }
 static void finish_request(void) { fputs("}\n", stdout); fflush(stdout); }
 static int input_key(const char *kind, const char *prompt) {
-    char *p; request(kind, prompt); finish_request(); p = read_wire();
+    char *p;
+    /* Descent must keep time advancing even beside hostile creatures. */
+    if(!strcmp(kind,"command"))flags.safe_wait=FALSE;
+    request(kind, prompt); finish_request(); p = read_wire();
+    if(wire_line[0]=='a'&&!strcmp(kind,"command")) {
+        unsigned id=(unsigned)strtoul(p,NULL,10);struct monst *mon;
+        for(mon=fmon;mon;mon=mon->nmon)if(mon->m_id==id&&!DEADMONSTER(mon)&&descent_in_reach(mon)) {
+            u.dx=sgn(mon->mx-u.ux);u.dy=sgn(mon->my-u.uy);
+            force_attack(mon,TRUE);break;
+        }
+        return '.';
+    }
     return wire_line[0] == 'k' ? atoi(p) : (*p ? (unsigned char)*p : 27);
 }
 static void metadata(void) {

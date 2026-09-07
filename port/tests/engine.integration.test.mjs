@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {NativeSession} from '../lib/native-session.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
-const exe=path.join(root,'engine/bin/nethack-engine.exe');
+const exe=path.join(root,'engine/bin/nethack-engine-spatial.exe');
 const until=async(predicate,label,timeout=10000)=>{const end=Date.now()+timeout;while(!predicate()){if(Date.now()>end)throw new Error(`Timed out: ${label}`);await new Promise(r=>setTimeout(r,10));}};
 
 test('actual NetHack character, live menu turns, equipment, and save/restore',{skip:!existsSync(exe),timeout:30000},async()=>{
@@ -25,7 +25,7 @@ test('actual NetHack character, live menu turns, equipment, and save/restore',{s
     engine.act({key:'i'});await until(()=>engine.virtualPrompt&&engine.ready,'inventory detachment');
     const before=engine.snapshot.actionSerial;
     for(let i=0;i<3;i++){engine.act({key:'.',idle:true});await until(()=>engine.ready,'idle pulse');}
-    assert.ok(engine.snapshot.actionSerial>=before+3,`actions ${before} -> ${engine.snapshot.actionSerial}`);assert.ok(engine.virtualPrompt,'inventory remains visible while turns advance');engine.cancel();
+    assert.ok(engine.snapshot.actionSerial>=before+3,`actions ${before} -> ${engine.snapshot.actionSerial}: ${JSON.stringify({request:engine.request,messages:engine.snapshot.messages})}`);assert.ok(engine.virtualPrompt,'inventory remains visible while turns advance');engine.cancel();
     engine.act({key:'Z',aim:'k'});await until(()=>engine.virtualPrompt&&engine.ready,'spell selection');
     assert.equal(engine.virtualPrompt.request.kind,'menu');
     const spellMenu=engine.virtualPrompt.request;

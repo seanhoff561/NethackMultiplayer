@@ -452,6 +452,11 @@ calc_mattacku_vars(
 {
     *ranged = (mdistu(mtmp) > 3);
     *range2 = !monnear(mtmp, mtmp->mux, mtmp->muy);
+#ifdef DESCENT_SPATIAL
+    /* Descent (2026-09-07): reach and occlusion use continuous bodies. */
+    { extern int descent_in_reach(struct monst *);
+      if (!u.uswallow) *ranged = *range2 = !descent_in_reach(mtmp); }
+#endif
     *foundyou = u_at(mtmp->mux, mtmp->muy);
     *youseeit = canseemon(mtmp);
 

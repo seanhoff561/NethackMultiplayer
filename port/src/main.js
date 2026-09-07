@@ -2,6 +2,8 @@
 import { DungeonRenderer } from './renderer.js';
 import { DungeonAudio } from './audio.js';
 import { GameUI } from './ui.js';
+import {CollisionWorld,integratePlayer,CELL} from './spatial.js';
+let collision=new CollisionWorld(),body=null,motion=null,collisionSignature='';
 
 const canvas=document.querySelector('#game');
 let renderer;
@@ -15,7 +17,6 @@ const settings={volume:0.55,sensitivity:1,pulseTime:0.8,...stored};
 let socket,world=null,playing=false,pendingPrompt=null,commands=[],connected=false,lastHp=null,lastPower=null,lastLevel=null,lastMessageCount=0;
 let keys=new Set(),yaw=0,pitch=0,lastAction=0,lastStep=0,lastTime=performance.now(),movementTime=0;
 let pose={x:4.5,y:7.5,yaw:0,pitch:0,crouch:false,moving:false,running:false};
-let target={x:pose.x,y:pose.y};
 const ui=new GameUI({
   onStart:character=>{audio.start();send({type:'start',character});ui.setEngineStatus('Entering the Dungeons of Doom…',false);},
   onContinue:()=>{audio.start();send({type:'continue'});},
@@ -38,26 +39,32 @@ function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else se
 function direction(dx,dy){return ({'-1,-1':'y','0,-1':'k','1,-1':'u','-1,0':'h','1,0':'l','-1,1':'b','0,1':'j','1,1':'n'})[`${Math.sign(dx)},${Math.sign(dy)}`]||'.';}
 function facing(){const dirs=[[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];return dirs[((Math.round(yaw/(Math.PI/4))%8)+8)%8];}
 function aim(){return direction(...facing());}
-function command(key,itemKey) {
+function command(key,itemKey,targetCell) {
   if(!key||!playing)return;
   if(key==='i'||key==='#inventory'){unlock();ui.showInventory(world?.inventory||[]);return;}
   if(key==='#commands'||key==='#'){unlock();ui.showCommands(commands);return;}
   ui.closePanels(false);pendingPrompt=null;
-  send({type:'action',key:itemKey?key+itemKey:key,aim:aim()});
+  send({type:'action',key:itemKey?key+itemKey:key,aim:aim(),targetCell});
   if(key==='f'||key==='t'){renderer.attack('ranged');audio.attack();}
 }
+function nearbyDoor(){
+  if(!body)return null;
+  for(let d=.15;d<2.1;d+=.1){const t=collision.at(body.x-Math.sin(yaw)*d,body.z-Math.cos(yaw)*d);if(t?.type==='door')return t;}
+  return null;
+}
 function interact(){
-  const [dx,dy]=facing(),p=world?.player;if(!p)return;
+  const door=nearbyDoor();if(door){command('o',null,{x:door.x,z:door.y});return;}
+
+  const [dx,dy]=facing(),p=body?{x:Math.floor(body.x/CELL),y:Math.floor(body.z/CELL)}:world?.player;if(!p)return;
   const ahead=world.tiles.find(t=>t.x===p.x+dx&&t.y===p.y+dy);
   const here=world.tiles.find(t=>t.x===p.x&&t.y===p.y);
   if(ahead?.type==='door')command('o');
-  else if(here?.type==='stairs_down')command('>');
-  else if(here?.type==='stairs_up')command('<');
+  else if(here?.type==='stairs_down'||here?.type==='stairs_up')ui.message('Walk into the left flight, turn at the landing, and follow the stairs to the next floor.');
   else if(here?.object)command(',');
   else if(ahead?.monster)command('#chat');
   else command(',');
 }
-function attack(){if(!playing||ui.hasPanel)return;const now=performance.now();if(now-lastAction<250)return;lastAction=now;send({type:'action',key:`F${aim()}`});renderer.attack('melee');audio.attack();}
+function attack(){if(!playing||ui.hasPanel)return;const now=performance.now();if(now-lastAction<450)return;lastAction=now;send({type:'input',yaw,forward:0,strafe:0});send({type:'action',key:'.',melee:true});renderer.attack('melee');audio.attack();}
 
 function connect(){
   socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
@@ -72,11 +79,22 @@ function connect(){
       return;
     }
     if(data.type==='starting'){playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;ui.setMode('loading');return;}
+    if(data.type==='motion'){
+      if(!data.player||data.levelId!==lastLevel)return;
+      if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
+      motion=data;const p=data.player;
+      if(!body||Math.hypot(body.x-p.x,body.z-p.z)>.65||data.blocked||data.transition)body={...p};
+      else {body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
+      renderer.setMotion(data);document.body.classList.toggle('floor-transition',data.transition&&!pendingPrompt);return;
+    }
     if(data.type==='snapshot'){
       if(!data.player || !Number.isFinite(data.player.x))return;
       world=normalize(data);const p=world.player;
       const level=world.levelId||`${p.dungeon}:${p.depth}`;
-      if(lastLevel!==level || Math.hypot(target.x-p.x-.5,target.y-p.y-.5)>5){
+      const signature=level+world.tiles.map(t=>`${t.x},${t.y},${t.type}`).join(';');
+      if(signature!==collisionSignature){collision.setTiles(world.tiles);collisionSignature=signature;}
+      if(lastLevel!==level){
+        body=collision.spawn(p.x,p.y);motion=null;
         pose.x=p.x+.5;pose.y=p.y+.5;
         if(lastLevel===null){
           // Face the most open nearby direction upon entering the dungeon.
@@ -84,10 +102,12 @@ function connect(){
           for(let i=0;i<8;i++){const a=i*Math.PI/4,dx=Math.round(-Math.sin(a)),dy=Math.round(-Math.cos(a));let score=0;
             for(let n=1;n<=7;n++){const t=world.tiles.find(t=>t.x===p.x+dx*n&&t.y===p.y+dy*n);if(!t||['wall','unknown','door'].includes(t.type))break;score++;}
             if(score>best){best=score;bestYaw=a;}}
-          yaw=bestYaw;
+          const entry=collision.stairs.find(s=>s.cellX===p.x&&s.cellZ===p.y);
+          yaw=entry?entry.angle+Math.PI:bestYaw;
         }
       }
-      lastLevel=level;target={x:p.x+.5,y:p.y+.5};
+      if(lastLevel!==null&&lastLevel!==level){const entry=collision.stairs.find(s=>s.cellX===p.x&&s.cellZ===p.y);if(entry)yaw=entry.angle+Math.PI;}
+      lastLevel=level;
       if(lastHp!==null&&p.hp<lastHp){audio.hit();renderer.attack('hit');document.body.classList.remove('damage');void document.body.offsetWidth;document.body.classList.add('damage');}
       if(lastPower!==null&&p.power<lastPower){renderer.attack('spell');audio.spell();}lastPower=p.power;
       lastHp=p.hp;renderer.setWorld(world);ui.update({...world,heading:-yaw,yaw});
@@ -177,7 +197,7 @@ function titleScene(){
   for(let y=2;y<11;y++)for(const x of [2,10])if(y%3===2)tiles.find(t=>t.x===x&&t.y===y).type='wall';
   tiles.find(t=>t.x===6&&t.y===0).type='door';
   renderer.setWorld({width:13,height:13,levelId:'title',tiles,player:{x:6,y:9},inventory:[]});
-  pose.x=6.5;pose.y=9.5;target={x:6.5,y:9.5};
+  pose.x=6.5;pose.y=9.5;pose.elevation=0;
 }
 titleScene();connect();
 let sendAt=0;
@@ -190,27 +210,25 @@ function frame(time){
     const f=(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0);
     const side=(keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0);
     moving=!!(f||side);
-    if(moving&&time-sendAt>100){
-      const dx=-Math.sin(yaw)*f+Math.cos(yaw)*side,dy=-Math.cos(yaw)*f-Math.sin(yaw)*side;
-      const angle=Math.atan2(-dx,-dy);const dirs=[[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,-1]];
-      const dir=dirs[((Math.round(angle/(Math.PI/4))%8)+8)%8];
-      send({type:'action',key:direction(...dir),movement:true,running,crouching:crouch});sendAt=time;
-    }
+    const input={forward:f,strafe:side,yaw,run:running,crouch};
+    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,input,dt*(body.speedScale||1),motion?.actors||[]);
+    if(time-sendAt>33){send({type:'input',...input});sendAt=time;}
   }
-  const distance=Math.hypot(target.x-pose.x,target.y-pose.y);
-  if(distance>.001){const speed=1/(settings.pulseTime*(running?.58:crouch?1.5:1));const step=Math.min(1,dt*Math.max(speed,distance*4)/distance);pose.x+=(target.x-pose.x)*step;pose.y+=(target.y-pose.y)*step;}
-  if(playing&&distance>.03&&time-lastStep>(running?280:460)){audio.step();lastStep=time;}
-  pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&distance>.015,running};
+  const previousX=pose.x,previousY=pose.y;
+  if(playing&&body){pose.x=body.x/CELL;pose.y=body.z/CELL;pose.elevation=body.y;}
+  const travelled=Math.hypot(pose.x-previousX,pose.y-previousY)*CELL;
+  if(playing&&travelled>.001&&time-lastStep>(running?280:460)){audio.step();lastStep=time;}
+  pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&travelled>.001,running};
   renderer.setPose(pose);renderer.update(dt);audio.ambient(dt);
   if(world&&time-movementTime>150){
     const [dx,dy]=facing(),p=world.player;
     const ahead=world.tiles.find(t=>t.x===p.x+dx&&t.y===p.y+dy),here=world.tiles.find(t=>t.x===p.x&&t.y===p.y);
-    let interaction=ahead?.type==='door'?'Open door':here?.type==='stairs_down'?'Descend the stairs':here?.type==='stairs_up'?'Ascend the stairs':here?.object?`Pick up ${here.object.name}`:ahead?.monster?`${ahead.monster.name}${ahead.monster.tame?' · companion':ahead.monster.peaceful?' · peaceful':''}`:'';
-    ui.update({...world,yaw,heading:-yaw,interaction,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
+    let interaction=nearbyDoor()?'Open door':here?.type==='stairs_down'?'Walk down the stairwell':here?.type==='stairs_up'?'Walk up the stairwell':here?.object?`Pick up ${here.object.name}`:ahead?.monster?`${ahead.monster.name}${ahead.monster.tame?' · companion':ahead.monster.peaceful?' · peaceful':''}`:'';
+    ui.update({...world,elapsed:motion?.time,player:{...world.player,x:pose.x-.5,y:pose.y-.5},yaw,heading:-yaw,interaction,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 // Read-only diagnostics used by the end-to-end smoke test.
-window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose}};},get renderer(){return renderer;}};
+window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose},motion,collision:collision.stairs};},get renderer(){return renderer;}};
