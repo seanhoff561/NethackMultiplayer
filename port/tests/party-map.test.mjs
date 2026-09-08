@@ -44,3 +44,8 @@ test('personal parchment fits discovered terrain and expands to include distant 
   const record={ownerId:'Alice',width:80,height:21,player:{x:60,y:12},tiles:[{x:57,y:10},{x:63,y:14}]};const near=mapBounds(record);assert.equal(near.width,24);assert.equal(near.height,12);assert.ok(near.x<=57&&near.x+near.width>63);assert.ok(near.y<=10&&near.y+near.height>14);
   record.tiles.push({x:2,y:2});const wide=mapBounds(record);assert.ok(wide.width>near.width);assert.ok(wide.x<=2&&wide.x+wide.width>63);delete record.ownerId;assert.deepEqual(mapBounds(record),{x:0,y:0,width:80,height:21});
 });
+
+test('motion packets carry a changed personal map immediately, then omit unchanged map data',async()=>{
+  const r=setup(),p=await r.join({name:'Alice'});p.mapRevisionSent=-1;const first=r.motion(p);assert.ok(first.cartography?.ownerId===p.id);const stable=r.motion(p);assert.equal(stable.cartography,undefined);
+  place(p,10,4);const moved=r.motion(p);assert.ok(moved.cartography,'movement changes exploration without waiting for a full snapshot');assert.ok(moved.cartography.revision>first.cartography.revision);assert.equal(moved.cartography.ownerName,'Alice');const again=r.motion(p);assert.equal(again.cartography,undefined);
+});

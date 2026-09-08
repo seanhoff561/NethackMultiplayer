@@ -182,6 +182,10 @@ function connect(){
       if(!data.player||data.levelId!==lastLevel)return;
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
       motion=data;partyModels.accept(data,party.id);const p=data.player;
+      if(data.cartography&&world?.multiplayer&&world.levelId===data.levelId){
+        world={...world,cartography:data.cartography,player:{...world.player,x:Math.floor(p.x/3),y:Math.floor(p.z/3)}};
+        renderer.setWorld(world);ui.update({...world,heading:-yaw,yaw});
+      }
       // A grounded packet already in flight before Space must not cancel the
       // local takeoff. Accept the first airborne acknowledgement, or a block.
       if(p.jumpOffset>0||p.jumpVelocity>0||data.blocked||data.transition)pendingJumpUntil=0;
