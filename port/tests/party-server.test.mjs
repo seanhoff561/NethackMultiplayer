@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {PartyServer} from '../lib/party-server.mjs';
 import {PartySimulation} from '../lib/party-simulation.mjs';
 import {mkdtemp} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 
@@ -37,4 +38,11 @@ test('completed or disconnected rooms can be unloaded so repeated wipes do not e
   const runtime=await mkdtemp(path.join(tmpdir(),'descent-party-capacity-')),s=new PartyServer({root:runtime,runtime});let stopped=0,saved=0;s.save=()=>{saved++;return true;};
   for(let n=0;n<8;n++)s.rooms.set(String(n),{loading:new Map(),players:new Map(),generator:{stop(){stopped++;}}});
   const fresh=s.room('ABCDEF12',true);assert.equal(fresh.code,'ABCDEF12');assert.equal(s.rooms.size,8);assert.equal(stopped,1);assert.equal(saved,1);
+});
+
+test('inactive rooms unload after the grace period while their save remains available',async()=>{
+  const runtime=await mkdtemp(path.join(tmpdir(),'descent-party-idle-')),s=new PartyServer({root:runtime,runtime});
+  s.roomIdleMs=0;
+  const room={code:'IDLE1234',loading:new Map(),players:new Map(),generator:{stop(){room.stopped=true;}},serialize(){return {code:this.code,players:[],floors:[]};},broadcast(){}};
+  s.rooms.set(room.code,room);assert.equal(s.cleanupInactive(false),true);assert.equal(s.rooms.has(room.code),false);assert.equal(room.stopped,true);assert.equal(existsSync(path.join(runtime,'parties',room.code+'.json')),true);
 });
