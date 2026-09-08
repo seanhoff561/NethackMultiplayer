@@ -21,6 +21,8 @@ Open `http://127.0.0.1:5177`. Choose a name, role, race, gender and alignment, t
 
 ## Controls
 
+**Audio and spell letters:** Escape → Settings provides separate master, effects, ambience and music volumes, plus an Area music switch. Original low-register themes crossfade between dungeon branches. Creature voices and footsteps use distance, stereo direction and wall muffling. Jumping cuts off footsteps, with separate takeoff and landing sounds. Escape → Spell letters reads your character's known spells; changing a letter swaps conflicts automatically and persists by spell name. These letters apply to the aiming spell menu, so movement and inventory bindings are unaffected.
+
 | Input | Action |
 | --- | --- |
 | Mouse | Look in any direction |

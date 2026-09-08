@@ -1,6 +1,8 @@
 // NetHack: Descent modification, 2026-09-07. Distributed under dat/license.
 import { DungeonRenderer } from './renderer.js';
 import { DungeonAudio } from './audio.js';
+import {AUDIO_DEFAULTS,soundPosition,soundArea} from './soundscape.js';
+import {bindSpellChoices} from './spell-bindings.js';
 import { GameUI } from './ui.js';
 import {targetLoot} from './loot.js';
 import {GameInput,COMMAND_KEYS} from './input.js';
@@ -17,7 +19,9 @@ try {renderer=new DungeonRenderer(canvas);} catch(error) {
 }
 const audio=new DungeonAudio();
 const stored=(()=>{try{return JSON.parse(localStorage.getItem('descent.settings'))||{};}catch{return {};}})();
-const settings={volume:0.55,sensitivity:1,pulseTime:0.8,...stored};
+const settings={...AUDIO_DEFAULTS,sensitivity:1,pulseTime:0.8,spellBindings:{},...stored};
+let spellSettingsRequest=null,spellSettingsTimer=0,lastItemIntent=null;
+let pendingJumpUntil=0;
 let socket,world=null,playing=false,pendingPrompt=null,commands=[],connected=false,lastHp=null,lastPower=null,lastLevel=null,lastMessageCount=0;
 let yaw=0,pitch=0,lastAction=0,lastStep=0,lastTime=performance.now(),movementTime=0;
 let pose={x:4.5,y:7.5,yaw:0,pitch:0,crouch:false,moving:false,running:false};
@@ -31,17 +35,24 @@ const ui=new GameUI({
     if(selection.cancelled){send({type:'cancel'});return;}
     answer({kind:'menu',value:selection.selected||[]});
   },
-  onSettings:value=>{Object.assign(settings,value);localStorage.setItem('descent.settings',JSON.stringify(settings));audio.setVolume?.(settings.volume);send({type:'settings',...settings});},
-  onClose:options=>{pendingPrompt=null;send({type:'cancel'});input?.clear();if(options?.escape)resumeOnEscapeUp=true;else capture();},
+  onSettings:value=>{Object.assign(settings,value);localStorage.setItem('descent.settings',JSON.stringify(settings));audio.setSettings(settings);send({type:'settings',...settings});},
+  onSound:kind=>audio.interface(kind),
+  onSpellSettings:()=>{
+    clearTimeout(spellSettingsTimer);spellSettingsRequest={started:false};send({type:'cancel'});
+    if(world?.player.busy){spellSettingsRequest=null;ui.setSpellChoices([],'Wait until you can act, then refresh your spells.');return;}
+    const request=spellSettingsRequest;request.id=action({key:'#showspells'});
+    spellSettingsTimer=setTimeout(()=>{if(spellSettingsRequest===request){spellSettingsRequest=null;ui.setSpellChoices([],'No spell list was returned. You may not know any spells; refresh to check again.');}},4000);
+  },
+  onClose:options=>{spellSettingsRequest=null;clearTimeout(spellSettingsTimer);pendingPrompt=null;send({type:'cancel'});input?.clear();if(options?.escape)resumeOnEscapeUp=true;else capture();},
   onPanel:options=>{renderer.holdMap(false);if(!options?.aiming)unlock();else{setDefending(false);input?.clear();send({type:'release'});}},
   onFullscreen:()=>toggleFullscreen(),
   onEscape:()=>openGameMenu(),
   onNewRun:()=>{unlock();send({type:"new-run"});},
 });
-audio.setVolume?.(settings.volume);
+audio.setSettings(settings);
 
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
-function setDefending(value){defending=!!value;renderer.guard(defending);send({type:"defend",active:defending});}
+function setDefending(value){if(defending!==!!value)audio.guard(!!value,!!world?.player.shield);defending=!!value;renderer.guard(defending);send({type:"defend",active:defending});}
 function unlock(){setDefending(false);if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
 let captureRetry=0;
 function capture(retry=false){
@@ -65,7 +76,7 @@ async function toggleFullscreen(){
   try {if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}
   catch{ui.message('Fullscreen is unavailable here. Open the game window or press F11 in your browser.');}
 }
-function action(message){const id=`${clientId}:${++actionSequence}`;pendingActions.set(id,message);send({type:'action',id,...message});}
+function action(message){const id=`${clientId}:${++actionSequence}`;pendingActions.set(id,message);send({type:'action',id,...message});return id;}
 const clientId=Math.random().toString(36).slice(2);
 function answer(input){if(input.value==='Escape'){send({type:'cancel'});}else send({type:'answer',input,aim:aim()});pendingPrompt=null;ui.closePanels(false);capture();}
 function direction(dx,dy){return ({'-1,-1':'y','0,-1':'k','1,-1':'u','-1,0':'h','1,0':'l','-1,1':'b','0,1':'j','1,1':'n'})[`${Math.sign(dx)},${Math.sign(dy)}`]||'.';}
@@ -73,6 +84,7 @@ function facing(){const dirs=[[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1],[1,0],[1,
 function aim(){return direction(...facing());}
 function command(key,itemKey,targetCell,itemId) {
   if(!key||!playing||world?.player.busy)return;
+  if(['e','q','r','w','W','T','P','R','d'].includes(key))lastItemIntent={key,time:audio.time};
   renderer.holdMap(false);
   if(key===','){const item=targetLoot(world?.floorObjects,body,yaw,collision);if(item){ui.closePanels(false);action({key:'.',pickup:item.id});capture();return;}}
   if(key==='i'||key==='#inventory'){unlock();ui.showInventory(world?.inventory||[]);return;}
@@ -109,8 +121,8 @@ function handleAction(name){
   else if(name==='commands')command('#commands');
   else if(name==='interact')interact();
   else if(name==='settings')openGameMenu();
-  else if(name==='map'){setDefending(false);renderer.holdMap(!renderer.mapHeld,world,motion?.time||0);}
-  else if(name==='jump'){if(!motion?.blocked&&!motion?.transition&&startJump(body))send({type:'jump'});}
+  else if(name==='map'){setDefending(false);renderer.holdMap(!renderer.mapHeld,world,motion?.time||0);audio.interface('page');}
+  else if(name==='jump'){if(!motion?.blocked&&!motion?.transition&&startJump(body)){pendingJumpUntil=performance.now()+500;audio.jump();send({type:'jump'});}}
   else if(COMMAND_KEYS[name])command(COMMAND_KEYS[name]);
 }
 input=new GameInput({context:()=>ui.panel?'menu':world?.player.busy?'busy':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
@@ -130,33 +142,51 @@ function connect(){
       return;
     }
     if(data.type==='action-status'){
-      if(data.status==='started'){const a=pendingActions.get(data.id);if(a?.melee){renderer.attack('melee');audio.attack();}pendingActions.delete(data.id);}
+      if(spellSettingsRequest&&spellSettingsRequest.id===data.id){if(data.status==='started')spellSettingsRequest.started=true;else if(['rejected','cancelled'].includes(data.status)){spellSettingsRequest=null;clearTimeout(spellSettingsTimer);ui.setSpellChoices([],data.reason||'Refresh when you can act.');}}
+      if(data.status==='started'){const a=pendingActions.get(data.id);if(a?.melee){renderer.attack('melee');audio.attack('melee',world?.player.weapon);}pendingActions.delete(data.id);}
       else if(data.status==='rejected'||data.status==='cancelled'){pendingActions.delete(data.id);if(data.reason)ui.message(data.reason);}
       return;
     }
     if(data.type==='player-effect'){renderer.attack(data.kind);audio.attack(data.kind);return;}
     if(data.type==='item-picked-up'){audio.pickup(data.name);ui.toast(`Picked up ${data.name}`);return;}
-    if(data.type==='actor-defeated'){if(renderer.hitActor(data.actorId,true)){audio.impact();ui.confirmHit();}return;}
+    if(data.type==='actor-defeated'){creatureSound(data.actorId,'death');if(renderer.hitActor(data.actorId,true)){audio.impact();ui.confirmHit();}return;}
     if(data.type==='feedback'){
       for(const e of data.events||[]){
-        if(e.kind==='actor-hit'){if(renderer.hitActor(e.actorId,e.dead)){audio.impact();ui.confirmHit();}}
+        if(e.kind==='actor-hit'){creatureSound(e.actorId,e.dead?'death':'hurt');if(renderer.hitActor(e.actorId,e.dead)){audio.impact();ui.confirmHit();}}
         if(e.kind==='player-hit'){audio.hit();renderer.attack('hit');ui.damage(e.amount);}
         if(e.kind==='pickup'){audio.pickup(e.name);ui.toast(`Picked up ${e.name}`);}
-        if(e.kind==='door')audio.door();
       }return;
     }
-    if(data.type==='starting'){pendingActions.clear();playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;pitch=0;ui.setMode('loading');return;}
+    if(data.type==='starting'){pendingActions.clear();playing=false;world=null;lastHp=null;lastPower=null;lastLevel=null;lastMessageCount=0;pitch=0;audio.airborne=false;audio.actorSounds.clear();ui.spellItems=[];ui.setMode('loading');return;}
     if(data.type==='motion'){
       if(!data.player||data.levelId!==lastLevel)return;
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
       motion=data;const p=data.player;
+      // A grounded packet already in flight before Space must not cancel the
+      // local takeoff. Accept the first airborne acknowledgement, or a block.
+      if(p.jumpOffset>0||p.jumpVelocity>0||data.blocked||data.transition)pendingJumpUntil=0;
+      const predicted=body&&performance.now()<pendingJumpUntil?{jumpOffset:body.jumpOffset,jumpVelocity:body.jumpVelocity}:null;
       if(!body||Math.hypot(body.x-p.x,body.z-p.z)>.65||data.blocked||data.transition)body={...p};
       else {body.speedScale=p.speedScale??1;body.jumpOffset=p.jumpOffset||0;body.jumpVelocity=p.jumpVelocity||0;body.x+=(p.x-body.x)*.35;body.z+=(p.z-body.z)*.35;body.y=collision.support(body.x,body.z)??p.y;}
+      if(predicted)Object.assign(body,predicted);
       renderer.setMotion(data);document.body.classList.toggle('floor-transition',data.transition&&!pendingPrompt);return;
     }
     if(data.type==='snapshot'){
       if(!data.player || !Number.isFinite(data.player.x))return;
-      world=normalize(data);const p=world.player;ui.setBusy(!!p.busy&&p.hp>0);
+      const before=world;world=normalize(data);const p=world.player;ui.setBusy(!!p.busy&&p.hp>0);
+      if(spellSettingsRequest?.started&&(world.messages||[]).slice(-2).some(m=>/don't know any spells right now/i.test(typeof m==='string'?m:m.text))){spellSettingsRequest=null;clearTimeout(spellSettingsTimer);ui.setSpellChoices([]);}
+      if(before){
+        if(p.level>before.player.level)audio.levelUp();
+        if(before.levelId===world.levelId){
+          const oldDoors=new Map(before.tiles.filter(t=>t.type.startsWith('door')).map(t=>[`${t.x},${t.y}`,t.type]));
+          for(const tile of world.tiles)if(['door','door_open'].includes(tile.type)&&oldDoors.has(`${tile.x},${tile.y}`)&&oldDoors.get(`${tile.x},${tile.y}`)!==tile.type)audio.door(tile.type==='door_open',soundPosition({x:(tile.x+.5)*3,z:(tile.y+.5)*3},pose));
+        }
+        if(JSON.stringify(before.inventory?.filter(i=>i.equipped).map(i=>i.id))!==JSON.stringify(world.inventory?.filter(i=>i.equipped).map(i=>i.id)))audio.item('equip');
+        if(lastItemIntent&&audio.time-lastItemIntent.time<15){
+          const consumed=before.inventory?.some(i=>i.quantity>(world.inventory?.find(n=>n.id===i.id)?.quantity||0));
+          if(consumed||p.busy&&!before.player.busy){const kind={q:'drink',e:'eat',r:'read',d:'drop'}[lastItemIntent.key];if(kind)audio.item(kind);lastItemIntent=null;}
+        }
+      }
       if(p.busy){input.clear();setDefending(false);renderer.holdMap(false);}
       const level=world.levelId||`${p.dungeon}:${p.depth}`;
       const signature=level+world.tiles.map(t=>`${t.x},${t.y},${t.type}`).join(';');
@@ -180,13 +210,21 @@ function connect(){
       if(lastPower!==null&&p.power<lastPower){renderer.attack('spell');audio.spell();}lastPower=p.power;
       lastHp=p.hp;renderer.setWorld(world);ui.update({...world,heading:-yaw,yaw});
       if(!playing&&p.hp>0){playing=true;ui.setMode('game');ui.message('You descend into the Dungeons of Doom. Click the view to look around.');send({type:'settings',...settings});}
-      if(p.hp<=0&&playing){playing=false;unlock();ui.showDeath(world.messages?.slice(-4).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');}
+      if(p.hp<=0&&playing){audio.playerDeath();playing=false;unlock();ui.showDeath(world.messages?.slice(-4).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');}
       return;
     }
     if(data.type==='prompt'){
+      if(spellSettingsRequest&&data.kind==='menu'&&/known spells/i.test(data.prompt||'')){
+        spellSettingsRequest=null;clearTimeout(spellSettingsTimer);pendingPrompt=null;send({type:'cancel'});ui.setSpellChoices(data.items||[]);return;
+      }
       pendingPrompt=data;const aiming=!!data.aiming&&['menu','key','yn'].includes(data.kind);if(!aiming)unlock();
       if(data.kind==='display')ui.showMenu({id:'document',title:'Dungeon chronicle',items:(data.prompt||'').split('\n').map((text,i)=>({id:i,text,selectable:false})),readOnly:true});
-      else if(data.kind==='menu') ui.showMenu({id:data.id||'engine',aiming,title:data.prompt||'Choose an action',items:(data.items||[]).map(i=>({...i,text:i.text??i.name})),multiple:data.how===2||data.multiple,readOnly:data.how===0});
+      else if(data.kind==='menu') {
+        const spells=aiming&&/spell/i.test(data.prompt||'');
+        if(spells)ui.spellItems=data.items||[];
+        const items=spells?bindSpellChoices(data.items||[],settings.spellBindings):data.items||[];
+        ui.showMenu({id:data.id||'engine',aiming,title:data.prompt||'Choose an action',items:items.map(i=>({...i,text:i.text??i.name})),multiple:data.how===2||data.multiple,readOnly:data.how===0});
+      }
       else {
         const directional=/direction|where|position|pick a location/i.test(data.prompt||'');
         const choices=data.choices|| (directional?'hjklyubn.<>':(world?.inventory||[]).map(i=>({key:i.key,text:i.name})).concat([{key:'?',text:'Show valid choices'},{key:'*',text:'Show all items'},{key:'-',text:'None / bare hands'},{key:'\r',text:'Continue'}]));
@@ -194,7 +232,7 @@ function connect(){
       }
       return;
     }
-    if(data.type==='actor-attack'){renderer.actorAttack(data.actorId,data.ranged);return;}
+    if(data.type==='actor-attack'){renderer.actorAttack(data.actorId,data.ranged);creatureSound(data.actorId,'attack');return;}
     if(data.type==='clearPrompt'){if(pendingPrompt){pendingPrompt=null;ui.closePanels(false);}return;}
     if(data.type==='document'){unlock();ui.showMenu({id:'document',title:data.title,items:(data.lines||[]).map((text,i)=>({id:i,text,selectable:false})),readOnly:true});}
     if(data.type==='commands')commands=data.commands.filter(c=>c.name!=='#'&&c.name!=='?').map(c=>({...c,key:c.key?String.fromCharCode(c.key):`#${c.name}`,category:commands.find(x=>x.name===c.name)?.category||'Journal & system'}));
@@ -206,10 +244,11 @@ function connect(){
       const saved=data.saved || (data.snapshot?.messages||world?.messages||[]).some(m=>/^saving\.\.\./i.test(typeof m==='string'?m:m.text));
       ui.setEngineStatus('The dungeon awaits.',true);
       if(saved){titleScene();ui.setMode('title');ui.setEngineStatus('Expedition saved. Continue when you are ready.',true);document.querySelector('#continue-game').hidden=false;}
-      else ui.showDeath((world?.messages||[]).slice(-5).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');
+      else {audio.playerDeath();ui.showDeath((world?.messages||[]).slice(-5).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');}
     }
   });
 }
+function creatureSound(id,kind){const e=renderer.monsters.get(`id:${id}`);if(e)audio.creature({...e.data,id,name:e.name},kind,soundPosition(e.group.position,pose,collision));}
 function normalize(snapshot){
   const p=snapshot.player;
   const terrain={'door-closed':'door','door-open':'door_open','stairs-up':'stairs_up','stairs-down':'stairs_down','stone':'wall'};
@@ -274,9 +313,11 @@ function frame(time){
   const previousX=pose.x,previousY=pose.y;
   if(playing&&body){if(!world?.player.busy)advanceJump(body,dt);pose.x=body.x/CELL;pose.y=body.z/CELL;pose.elevation=body.y+(body.jumpOffset||0);}
   const travelled=Math.hypot(pose.x-previousX,pose.y-previousY)*CELL;
-  if(playing&&travelled>.001&&time-lastStep>(running?280:460)){audio.step(running,collision.at(body.x,body.z)?.type,crouch);lastStep=time;}
+  const airborne=!!(body&&(body.jumpOffset>0||body.jumpVelocity>0));
+  if(playing)audio.movement(airborne,collision.at(body?.x,body?.z)?.type);
+  if(playing&&!airborne&&travelled>.001&&time-lastStep>(running?280:460)){audio.step(running,collision.at(body.x,body.z)?.type,crouch);lastStep=time;}
   pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&travelled>.001,running};
-  renderer.setPose(pose);renderer.update(dt);audio.ambient(dt,{playing,pose,torches:renderer.torches,water:world?.tiles.some(t=>t.type==='fountain'&&Math.hypot(t.x-pose.x,t.y-pose.y)<4)});
+  renderer.setPose(pose);renderer.update(dt);audio.ambient(dt,{playing,pose,torches:renderer.torches,area:soundArea(world),entities:renderer.monsters,collision,water:world?.tiles.some(t=>t.type==='fountain'&&Math.hypot(t.x-pose.x,t.y-pose.y)<4)});
   if(world&&time-movementTime>150){
     const p=world.player;
     const loot=targetLoot(world?.floorObjects,body,yaw,collision);
@@ -294,4 +335,4 @@ function frame(time){
 requestAnimationFrame(frame);
 
 // Read-only diagnostics used by the end-to-end smoke test.
-window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose},motion,collision:collision.stairs};},get renderer(){return renderer;}};
+window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose},motion,collision:collision.stairs};},get renderer(){return renderer;},get audio(){return audio;}};

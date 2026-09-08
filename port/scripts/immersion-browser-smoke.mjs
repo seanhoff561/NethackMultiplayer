@@ -37,7 +37,7 @@ try{
   // Pickups highlight their own materials and log feedback outside the center.
   await page.keyboard.press('i');await page.locator(`[data-item-key="${armor.key}"]`).click();await page.locator('[data-inventory-action=d]').click();
   await page.waitForFunction(id=>window.descent.renderer.snapshot.floorObjects.some(i=>i.id===id),armor.id);
-  await page.evaluate(id=>{const o=window.descent.renderer.pickups.get(`object:${id}`).group.position,p=window.descent.state.pose;const desired=Math.atan2(-(o.x-p.x*3),-(o.z-p.y*3)),delta=Math.atan2(Math.sin(desired-p.yaw),Math.cos(desired-p.yaw));document.dispatchEvent(new MouseEvent('mousemove',{movementX:-delta/.0022}));},armor.id);
+  await page.evaluate(id=>{const o=window.descent.renderer.pickups.get(`object:${id}`).group.position,p=window.descent.state.pose;const desired=Math.atan2(-(o.x-p.x*3),-(o.z-p.y*3)),delta=Math.atan2(Math.sin(desired-p.yaw),Math.cos(desired-p.yaw));const tilt=Math.atan2(o.y+.3-window.descent.renderer.camera.position.y,Math.hypot(o.x-p.x*3,o.z-p.y*3));document.dispatchEvent(new MouseEvent('mousemove',{movementX:-delta/.0022,movementY:(p.pitch-tilt)/.0022}));},armor.id);
   await page.waitForFunction(id=>window.descent.renderer.highlightKey===`object:${id}`,armor.id);
   assert.equal(await page.locator('#focus-name').textContent(),await page.evaluate(id=>window.descent.renderer.snapshot.floorObjects.find(i=>i.id===id).name,armor.id));
   assert.equal(await page.locator('#focus-kind').textContent(),'On the ground');

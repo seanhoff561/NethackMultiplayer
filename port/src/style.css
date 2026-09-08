@@ -99,3 +99,7 @@ body.floor-transition::after{opacity:1}
 #ui #visible-enemies{list-style:none;margin:0;padding:0;max-height:30vh;overflow:hidden;font:12px/1.65 Georgia;overflow-wrap:anywhere;columns:1}
 #ui #visible-enemies li{break-inside:avoid}#ui #visible-enemies span{font:10px system-ui;color:#a3aac0}
 @media(max-width:700px){#ui .awareness{top:154px;right:14px;width:180px;max-width:42vw;padding:10px}#ui #focus-name{font-size:14px}}
+#ui .setting-row input[role="switch"]{width:38px;height:20px;accent-color:#9394b9;flex:none;cursor:pointer}
+#ui .spell-bindings select{width:72px;flex:none;padding:9px 12px;font:16px Georgia;background:#222636;border:1px solid #676b8355}
+#ui .spell-bindings .setting-row{gap:20px}#ui .spell-bindings small{white-space:pre-wrap;font:10px/1.6 system-ui}
+#ui #spell-binding-status{color:#a8b1c7;font:12px/1.6 system-ui}#ui #spell-bindings-reset{margin-left:20px}

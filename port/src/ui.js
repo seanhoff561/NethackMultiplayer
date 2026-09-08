@@ -1,5 +1,7 @@
 // NetHack: Descent, 2026-09-07. Distributed under dat/license.
 import {experienceLabel} from './awareness.js';
+import {AUDIO_DEFAULTS} from './soundscape.js';
+import {SPELL_LETTERS,spellName,spellDetails,spellChoices,bindSpellChoices,rebindSpell} from './spell-bindings.js';
 
 const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const capital = value => String(value || '').replace(/^./, c => c.toUpperCase());
@@ -98,7 +100,7 @@ export class GameUI {
     this.snapshot = null;
     this.log = [];
     this.engineReady = false;
-    this.settings = { volume: .55, sensitivity: 1, pulseTime: .8 };
+    this.settings = { ...AUDIO_DEFAULTS, sensitivity: 1, pulseTime: .8,spellBindings:{} };
     try { Object.assign(this.settings, JSON.parse(localStorage.getItem('descent.settings') || '{}')); } catch { /* Storage may be unavailable. */ }
     this.renderShell();
     this.bind();
@@ -166,6 +168,7 @@ export class GameUI {
     this.$('#continue-game').addEventListener('click', () => { if (this.engineReady) this.callbacks.onContinue?.(); });
     this.$('.brand').addEventListener('click', e => e.preventDefault());
     this.root.addEventListener('click', e => {
+      if(e.target.closest('[data-item-id],[data-inventory-action],[data-settings-section]'))this.callbacks.onSound?.('select');
       const command = e.target.closest('[data-command]');
       if (command) { this.callbacks.onCommand?.(command.dataset.command); return; }
       const action = e.target.closest('[data-action]')?.dataset.action;
@@ -364,6 +367,7 @@ export class GameUI {
   }
 
   openPanel(type, title, body, options = {}) {
+    if(this.panel?.type!==type)this.callbacks.onSound?.('open');
     this.callbacks.onPanel?.(options);
     if (!options.aiming && document.pointerLockElement) document.exitPointerLock();
     this.panel = { type, ...options };
@@ -376,6 +380,7 @@ export class GameUI {
   }
 
   closePanels(notify = true, escape = false) {
+    if(this.panel)this.callbacks.onSound?.('close');
     this.panel = null;
     this.$('#panel-layer').hidden = true;
     this.$('#panel-layer').innerHTML = '';
@@ -409,6 +414,7 @@ export class GameUI {
     if (panel?.type !== 'menu') return;
     const item = panel.menu.items[index];
     if (!item || panel.menu.readOnly || item.selectable === false) return;
+    this.callbacks.onSound?.('select');
     const id = String(item.id ?? item.key);
     if (panel.menu.multiple) {
       if (panel.selected.has(id)) panel.selected.delete(id); else panel.selected.add(id);
@@ -477,7 +483,12 @@ export class GameUI {
     requestAnimationFrame(() => this.$('#command-search')?.focus());
   }
 
-  showSettings(section='settings') {
+  setSpellChoices(items=[],status=''){
+    this.spellItems=spellChoices(items);this.spellStatus=status;this.spellsLoading=false;
+    if(this.panel?.type==='settings'&&this.panel.section==='spells')this.showSettings('spells',false);
+  }
+
+  showSettings(section='settings',refresh=true) {
     const playing=['playing','play','game'].includes(this.mode);
     const rows=[
       ['W A S D','Walk'],['MOUSE','Look'],['SHIFT / CTRL','Run / crouch'],['LEFT CLICK','Attack'],
@@ -490,10 +501,16 @@ export class GameUI {
     ];
     const controls=`<div class="help-controls">${rows.map(([key,text])=>`<div><kbd>${key}</kbd><span>${text}</span></div>`).join('')}</div>`;
     const settings=`<div class="setting-row"><div><strong>Fullscreen</strong><small>F10 exits fullscreen. Escape opens this menu.</small></div><button class="text-button" data-action="fullscreen">Toggle · F10</button></div>${[
-      ['volume','Sound volume','Low dungeon ambience and grounded effects.',0,1,.05],
+      ['volume','Master volume','Overall sound level; softened highs and controlled dynamics.',0,1,.05],
+      ['effectsVolume','Effects volume','Movement, monsters, combat and inventory.',0,1,.05],
+      ['ambienceVolume','Ambience volume','Air, water, embers and distant stone.',0,1,.05],
+      ['musicVolume','Music volume','Original, slow dungeon themes that change with the area.',0,1,.05],
       ['sensitivity','Look sensitivity','How quickly the camera follows your mouse.',.1,2,.05],
       ['pulseTime','Dungeon tempo','Pace of hunger, recovery and creature attacks.',.3,2,.1],
-    ].map(([key,label,description,min,max,step])=>`<label class="setting-row"><div><strong>${label}</strong><small>${description}</small></div><output id="setting-value-${key}">${key==='pulseTime'?Number(this.settings[key]).toFixed(1)+'s':Math.round(this.settings[key]*100)+'%'}</output><input type="range" data-setting="${key}" value="${this.settings[key]}" min="${min}" max="${max}" step="${step}" aria-label="${label}"></label>`).join('')}<button class="text-button" id="settings-reset">Reset settings</button>`;
+    ].map(([key,label,description,min,max,step])=>`<label class="setting-row"><div><strong>${label}</strong><small>${description}</small></div><output id="setting-value-${key}">${key==='pulseTime'?Number(this.settings[key]).toFixed(1)+'s':Math.round(this.settings[key]*100)+'%'}</output><input type="range" data-setting="${key}" value="${this.settings[key]}" min="${min}" max="${max}" step="${step}" aria-label="${label}"></label>`).join('')}<label class="setting-row"><div><strong>Area music</strong><small>Fade music in or out while keeping the dungeon sounds.</small></div><input id="music-enabled" type="checkbox" role="switch" ${this.settings.musicEnabled?'checked':''} aria-label="Area music"></label><button class="text-button" id="settings-reset">Reset settings</button>`;
+    if(section==='spells'&&refresh&&playing)this.spellsLoading=true;
+    const spellRows=spellChoices(bindSpellChoices(this.spellItems||[],this.settings.spellBindings));
+    const spells=`<div class="field-guide"><p>Press <kbd>F</kbd> to aim a spell, then its letter below. Letters apply only inside spell selection. Assigning an occupied letter swaps the two spells. Uppercase letters use Shift.</p></div><p id="spell-binding-status" role="status">${this.spellsLoading?'Reading your known spells…':esc(this.spellStatus||(!playing?'Enter a dungeon to view your known spells.':spellRows.length?'Changes are saved automatically.':'You do not know any spells yet.'))}</p><div class="spell-bindings">${spellRows.map((item,index)=>`<label class="setting-row"><div><strong>${esc(capital(spellName(item)))}</strong><small>${esc(spellDetails(item))}</small></div><select data-spell-index="${index}" aria-label="Letter for ${esc(spellName(item))}">${[...SPELL_LETTERS].map(key=>`<option value="${key}" ${key===item.key?'selected':''}>${key}</option>`).join('')}</select></label>`).join('')}</div>${playing?'<button class="text-button" data-settings-section="spells">Refresh known spells</button>':''}<button class="text-button" id="spell-bindings-reset">Restore native letters</button>`;
     const guide=`<div class="field-guide">
       <article><h3>Entering commands</h3><p>Press <kbd>Tab</kbd>, type a command name such as <b>engrave</b>, <b>pray</b>, <b>wear</b> or <b>save</b>, then click the result or press <kbd>Enter</kbd>. The complete NetHack command list is searchable here.</p><p>When the game asks for an item or a choice, click it or press its displayed letter. Press <kbd>Escape</kbd> to cancel the choice and return to this menu.</p></article>
       <article><h3>Your first descent</h3><p>Find the Amulet of Yendor and carry it back to the surface. Use <kbd>WASD</kbd> to explore, aim with the mouse, and <kbd>E</kbd> to open doors or take nearby objects. Walk into the left side of a stairwell, turn on its landing, and follow the return flight.</p></article>
@@ -501,17 +518,26 @@ export class GameUI {
       <article><h3>A living dungeon</h3><p>Menus never pause the world. Creatures keep moving; hunger and recovery continue. Retreat somewhere safer before reading or organizing equipment. Carrying too much slows walking and running; overloaded characters cannot move. Most foes can keep pace with a sprint. Red creatures have taken damage; red screen edges mean you have been hurt.</p></article>
       <article><h3>Keep your expedition</h3><p>Use <b>Save expedition</b> below, or <kbd>Tab</kbd> → Save, and confirm Yes. Continue restores the native save and your position. Closing the window alone does not save or stop the dungeon.</p></article>
     </div>`;
-    const nav=`<nav class="expedition-tabs" aria-label="Expedition menu">${[['settings','Settings'],['controls','All controls'],['guide','Field guide']].map(([key,label])=>`<button data-settings-section="${key}" aria-current="${key===section?'page':'false'}">${label}</button>`).join('')}</nav>`;
+    const nav=`<nav class="expedition-tabs" aria-label="Expedition menu">${[['settings','Settings'],['spells','Spell letters'],['controls','All controls'],['guide','Field guide']].map(([key,label])=>`<button data-settings-section="${key}" aria-current="${key===section?'page':'false'}">${label}</button>`).join('')}</nav>`;
     const intro=`<div class="command-discovery"><div><strong>Every command is within reach.</strong><p><kbd>Tab</kbd> → type its name → <kbd>Enter</kbd></p></div>${playing?'<button data-action="commands" class="text-button">Open commands →</button>':''}</div>`;
     const footer=playing?'<div class="expedition-footer"><div><button data-command="S" class="text-button">Save expedition</button><button data-action="new-run" class="text-button">New run</button></div><button data-action="resume" class="primary-button">Return to dungeon <kbd>ESC</kbd></button></div>':'';
-    this.openPanel('settings',playing?'Expedition':'Prepare your descent',nav+intro+(section==='controls'?controls:section==='guide'?guide:settings)+footer,{centered:true,section,overline:'SETTINGS · CONTROLS · GUIDE'});
+    this.openPanel('settings',playing?'Expedition':'Prepare your descent',nav+intro+(section==='spells'?spells:section==='controls'?controls:section==='guide'?guide:settings)+footer,{centered:true,section,overline:'SETTINGS · CONTROLS · GUIDE'});
+    const save=()=>{try{localStorage.setItem('descent.settings',JSON.stringify(this.settings));}catch{}this.callbacks.onSettings?.({...this.settings});};
+    this.$('#music-enabled')?.addEventListener('change',e=>{this.settings.musicEnabled=e.target.checked;save();});
+    this.$('#panel-layer').querySelectorAll('[data-spell-index]').forEach(select=>select.addEventListener('change',()=>{
+      const name=spellName(spellRows[Number(select.dataset.spellIndex)]);
+      this.settings.spellBindings=rebindSpell(this.spellItems,this.settings.spellBindings,name,select.value);save();this.callbacks.onSound?.('select');
+      this.spellStatus=`${capital(name)} is now ${select.value}. Any conflicting spell was swapped.`;this.showSettings('spells',false);this.$(`[data-spell-index="${select.dataset.spellIndex}"]`)?.focus();
+    }));
+    this.$('#spell-bindings-reset')?.addEventListener('click',()=>{this.settings.spellBindings={};save();this.spellStatus='Native spell letters restored.';this.showSettings('spells',false);});
+    if(section==='spells'&&refresh&&playing)this.callbacks.onSpellSettings?.();
     this.$('#panel-layer').querySelectorAll('[data-setting]').forEach(input=>input.addEventListener('input',()=>{
       const key=input.dataset.setting;this.settings[key]=Number(input.value);
       this.$(`#setting-value-${key}`).textContent=key==='pulseTime'?Number(input.value).toFixed(1)+'s':Math.round(input.value*100)+'%';
       try{localStorage.setItem('descent.settings',JSON.stringify(this.settings));}catch{}
       this.callbacks.onSettings?.({...this.settings});
     }));
-    this.$('#settings-reset')?.addEventListener('click',()=>{this.settings={volume:.55,sensitivity:1,pulseTime:.8};this.callbacks.onSettings?.({...this.settings});this.showSettings();});
+    this.$('#settings-reset')?.addEventListener('click',()=>{this.settings={...AUDIO_DEFAULTS,sensitivity:1,pulseTime:.8,spellBindings:{}};save();this.showSettings();});
   }
 
   showNewRun(){
