@@ -1,4 +1,5 @@
 import {PartyCampaign} from './party-campaign.mjs';
+import {visibleMapTiles,rememberMapTiles} from './party-cartography.mjs';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {SpatialSimulation} from './spatial-simulation.mjs';
 import {integratePlayer,advanceJump,startJump,stairFinished,CELL,canonical} from '../src/spatial.js';
@@ -47,10 +48,12 @@ export class PartySimulation {
       p.inventory=[this.item(stats.weapon,'weapon',{equipped:true,damage:stats.damage}),this.item(`${role.toLowerCase()} armor`,'armor',{equipped:true,armor:stats.armor}),this.item('potion of healing','potion',{quantity:3}),this.item('food ration','food',{quantity:3}),this.item('dart','ammo',{quantity:20,damage:5})];
       if(['Wizard','Healer','Priest'].includes(role))p.inventory.push(this.item('wand of force','wand',{charges:8}));
       if(role==='Knight'||role==='Valkyrie')p.inventory.push(this.item('small shield','armor',{equipped:true,armor:2,armorSlot:1}));
-      this.keys(p);this.rescale();return p;
+      this.keys(p);this.survey(p);this.rescale();return p;
     }catch(error){this.players.delete(p.id);if(this.hostId===p.id)this.hostId=null;throw error;}
   }
   keys(p){p.inventory.forEach((item,i)=>item.key='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'[i]);}
+  survey(p){const f=this.floors.get(p.depth);if(!f||!p.body||p.hp<=0)return;rememberMapTiles(p,p.depth,visibleMapTiles(f.source.tiles,p.body),f.source.tiles);}
+  personalMap(p){return {ownerId:p.id,ownerName:p.name,levelId:`party:${p.depth}`,elapsed:this.time,revision:p.cartography?.[p.depth]?.revision||0,tiles:Object.values(p.cartography?.[p.depth]?.tiles||{})};}
   spawn(floor,stair){
     const tiles=floor.source.tiles,entry=(typeof stair==='object'?stair:tiles.find(t=>t.type===stair))||tiles.find(t=>t.x===floor.source.player.x&&t.y===floor.source.player.y)||tiles.find(t=>t.type==='floor');
     const occupied=[...this.players.values()].filter(p=>p.depth===floor.depth&&p.body).map(p=>p.body);
@@ -73,10 +76,10 @@ export class PartySimulation {
   snapshot(p){
     const f=this.floors.get(p.depth);if(!f||!p.body)return null;
     const b=p.body,armor=p.inventory.filter(i=>i.equipped&&i.symbol==='[').reduce((n,i)=>n+(i.armor||1),0);
-    return {type:'snapshot',multiplayer:true,revision:this.revision,levelId:`party:${p.depth}`,width:f.source.width,height:f.source.height,turn:Math.floor(this.time/.8),player:{...f.source.player,...p.body,x:Math.floor(b.x/CELL),y:Math.floor(b.z/CELL),name:p.name,role:p.role,race:p.race,hp:p.hp,downed:p.hp<=0,maxHp:p.maxHp,power:Math.floor(p.power),maxPower:p.maxPower,depth:f.source.player.depth,level:p.level,experience:p.experience,gold:p.gold,hunger:p.hunger,ac:10-armor,weapon:this.publicPlayer(p).weapon,shield:p.inventory.find(i=>i.equipped&&/shield/.test(i.name))?.name||'',conditions:p.hp<=0?['Downed — await revival']:p.hunger<200?['Hungry']:[],busy:false,immobile:p.hp<=0,blind:false,encumbrance:0,speedScale:1},inventory:p.inventory,tiles:f.source.tiles.map(t=>({...t,seen:p.seen.has(`${p.depth}:${t.x},${t.y}`),explored:p.seen.has(`${p.depth}:${t.x},${t.y}`)})),actors:[...f.sim.actors.values()].map(a=>({...a.data,x:Math.floor(a.x/CELL),y:Math.floor(a.z/CELL)})),floorObjects:f.objects,messages:this.log};
+    return {type:'snapshot',multiplayer:true,cartography:this.personalMap(p),revision:this.revision,levelId:`party:${p.depth}`,width:f.source.width,height:f.source.height,turn:Math.floor(this.time/.8),player:{...f.source.player,...p.body,x:Math.floor(b.x/CELL),y:Math.floor(b.z/CELL),name:p.name,role:p.role,race:p.race,hp:p.hp,downed:p.hp<=0,maxHp:p.maxHp,power:Math.floor(p.power),maxPower:p.maxPower,depth:f.source.player.depth,level:p.level,experience:p.experience,gold:p.gold,hunger:p.hunger,ac:10-armor,weapon:this.publicPlayer(p).weapon,shield:p.inventory.find(i=>i.equipped&&/shield/.test(i.name))?.name||'',conditions:p.hp<=0?['Downed — await revival']:p.hunger<200?['Hungry']:[],busy:false,immobile:p.hp<=0,blind:false,encumbrance:0,speedScale:1},inventory:p.inventory,tiles:f.source.tiles.map(t=>({...t,seen:p.seen.has(`${p.depth}:${t.x},${t.y}`),explored:p.seen.has(`${p.depth}:${t.x},${t.y}`)})),actors:[...f.sim.actors.values()].map(a=>({...a.data,x:Math.floor(a.x/CELL),y:Math.floor(a.z/CELL)})),floorObjects:f.objects,messages:this.log};
   }
   motion(p){const f=this.floors.get(p.depth);return {type:'motion',campaign:this.campaign?.packet(),revive:this.reviveState(p),levelId:`party:${p.depth}`,time:this.time,player:p.body,blocked:!!this.outcome||p.hp<=0||!!p.transition,transition:!!p.transition,players:[...this.players.values()].map(x=>this.publicPlayer(x)),actors:f?[...f.sim.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y,yaw:a.yaw,moving:!!a.moving,visible:true})):[],projectiles:f?.projectiles.map(({id,x,y,z,kind})=>({id,x,y,z,kind}))||[]};}
-  sync(p){const s=this.snapshot(p);if(s){this.send(p.id,s);this.send(p.id,this.motion(p));if(this.outcome)this.send(p.id,{type:'party-result',...this.outcome});}}
+  sync(p){this.survey(p);const s=this.snapshot(p);if(s){this.send(p.id,s);this.send(p.id,this.motion(p));if(this.outcome)this.send(p.id,{type:'party-result',...this.outcome});}}
   input(p,m){if(this.outcome)return;if(m.forward||m.strafe)this.cancelRevive(p);if(!p.body||p.hp<=0||p.transition)return;p.input={forward:Math.max(-1,Math.min(1,Number(m.forward)||0)),strafe:Math.max(-1,Math.min(1,Number(m.strafe)||0)),yaw:Number.isFinite(m.yaw)?m.yaw:0,run:!!m.run,crouch:!!m.crouch,defend:!!m.defend};p.inputAt=this.time;}
   async transition(p,key){
     if(this.outcome||p.transition||p.hp<=0)return;this.cancelRevive(p);
@@ -158,7 +161,7 @@ export class PartySimulation {
       else if(this.time<(p.prayAt||0))throw Error('Your deity asks you to wait.');
       p.prayAt=this.time+60;p.hp=p.maxHp;p.power=p.maxPower;this.notify(`${p.name} is restored by the altar.`);return;
     }
-    if(verb==='s'){for(const t of f.source.tiles)if(Math.hypot((t.x+.5)*CELL-p.body.x,(t.y+.5)*CELL-p.body.z)<7){p.seen.add(`${p.depth}:${t.x},${t.y}`);if(t.secretDoor){t.type='door';t.secretDoor=false;}if(t.secretCorridor){t.type='corridor';t.secretCorridor=false;}}f.sim.world.setTiles(f.source.tiles);f.sim.routes.clear();return;}
+    if(verb==='s'){for(const t of visibleMapTiles(f.source.tiles,p.body,7)){if(t.secretDoor){t.type='door';t.secretDoor=false;}if(t.secretCorridor){t.type='corridor';t.secretCorridor=false;}}f.sim.world.setTiles(f.source.tiles);f.sim.routes.clear();this.survey(p);return;}
     if(verb==='#dig'){
       if(!p.inventory.some(i=>/pick-axe|mattock|wand of digging/.test(i.name)))throw Error('Carry a pick-axe, mattock or wand of digging.');
       if(this.time<(p.digAt||0))throw Error('Your digging tool is still recovering.');
@@ -245,7 +248,7 @@ export class PartySimulation {
         const tile=f.sim.world.at(p.body.x,p.body.z);if(tile?.type==='lava'&&this.time>(p.hazardAt||0)){p.hazardAt=this.time+1;this.hurt(p,8);}
         if(tile?.type==='trap'&&this.time>(p.hazardAt||0)&&!p.body.jumpOffset){p.hazardAt=this.time+3;this.hurt(p,4);}
         if(!p.hunger&&this.time>(p.starveAt||0)){p.starveAt=this.time+5;this.hurt(p,1);}
-        if(Math.floor(this.time*2)!==p.sightTick){p.sightTick=Math.floor(this.time*2);for(const t of f.source.tiles)if(Math.hypot((t.x+.5)*CELL-p.body.x,(t.y+.5)*CELL-p.body.z)<15&&f.sim.world.lineClear(p.body,{x:(t.x+.5)*CELL,z:(t.y+.5)*CELL},.01))p.seen.add(`${p.depth}:${t.x},${t.y}`);}
+        if(Math.floor(this.time*4)!==p.sightTick){p.sightTick=Math.floor(this.time*4);this.survey(p);}
       }
       for(const a of actors){
         a.moving=false;if(!alive.length||a.data.sleeping||!a.data.canMove||this.time<(a.stunnedUntil||0))continue;
@@ -276,6 +279,10 @@ export class PartySimulation {
     if(data.version!==1||data.code!==this.code)throw Error('Unsupported party save.');if(!data.campaign)throw Error('This older party save predates shared campaigns. Create a new party to play the ascension campaign.');Object.assign(this,{time:data.time,nextId:data.nextId,revision:data.revision,log:data.log,outcome:data.outcome||null});
     if(data.campaign){this.campaign=new PartyCampaign(this,data.campaign.owner);this.campaign.state=data.campaign;this.generator.setCharacter?.(data.campaign.owner);}
     this.players=new Map(data.players.map(p=>[p.id,{...p,body:{...p.body,id:p.id},connected:false,input:{},seen:new Set(p.seen)}]));
-    for(const f of data.floors){const sim=new SpatialSimulation();sim.accept(f.source);sim.actors=new Map(f.actors.filter(a=>!a.data.tame).map(a=>[a.id,a]));this.floors.set(f.depth,{...f,sim,projectiles:f.projectiles||[]});}this.rescale();
+    for(const f of data.floors){const sim=new SpatialSimulation();sim.accept(f.source);sim.actors=new Map(f.actors.filter(a=>!a.data.tame).map(a=>[a.id,a]));this.floors.set(f.depth,{...f,sim,projectiles:f.projectiles||[]});}
+    // Older saves already contain a private exploration set for each hero.
+    // Upgrade only those recorded cells, never the whole generated dungeon.
+    for(const p of this.players.values())if(!p.cartography)for(const f of this.floors.values())rememberMapTiles(p,f.depth,f.source.tiles.filter(t=>p.seen.has(`${f.depth}:${t.x},${t.y}`)),f.source.tiles);
+    this.rescale();
   }
 }

@@ -29,6 +29,14 @@ try{
   const moved=await pages[0].evaluate(()=>window.descent.state.motion.player);assert.ok(Math.hypot(initial.x-moved.x,initial.z-moved.z)>.05);
   await pages[1].waitForFunction(id=>window.descent.state.motion.players.some(p=>p.id===id&&p.moving),ids[0],{timeout:200}).catch(()=>{});
   await pages[0].screenshot({path:'test-results/party-four-players.png'});
+  for(const [i,page] of pages.slice(0,2).entries()){
+    await page.locator('#game').click({position:{x:700,y:450}});await page.keyboard.press('m');await page.waitForFunction(()=>window.descent.renderer.mapHeld&&window.descent.renderer.mapRecord?.ownerId===window.descent.state.party.id);
+    const record=await page.evaluate(()=>window.descent.renderer.mapRecord);assert.equal(record.ownerName,`Companion ${i+1}`);assert.ok(record.tiles.some(t=>t.char==='.'||t.char==='#'));assert.ok(record.tiles.some(t=>t.char==='|'||t.char==='-'),'room boundaries are drawn');
+    await page.waitForFunction(time=>window.descent.renderer.mapRecord.time!==time,record.time,{timeout:4000});
+    const png=await page.evaluate(()=>window.descent.renderer.parchment.canvas.toDataURL('image/png'));await writeFile(`test-results/party-personal-map-${i+1}.png`,Buffer.from(png.split(',')[1],'base64'));
+    await page.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementY:440})));await page.waitForTimeout(250);await page.screenshot({path:`test-results/party-held-map-${i+1}.png`});await page.keyboard.press('m');
+    await page.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementY:-440})));
+  }
   for(const page of pages){await page.evaluate(()=>document.exitPointerLock());await page.locator('.party-open').click();await page.locator('#voice-enable').click();await page.waitForFunction(()=>window.descent.state.party.voiceEnabled);}
   for(const page of pages)await page.waitForFunction(()=>window.descent.state.party.voicePeers.length===3&&window.descent.state.party.voicePeers.every(s=>s==='connected'),{},{timeout:20000});
   await pages[0].locator('#voice-ptt').uncheck();await pages[1].locator('.party-speaker').filter({hasText:'Companion 1'}).waitFor({timeout:15000});await pages[0].screenshot({path:'test-results/party-voice-menu.png'});
@@ -44,7 +52,9 @@ try{
   await pages[0].screenshot({path:'test-results/party-microphone-options.png'});await pages[0].locator('#voice-test').click();await pages[1].locator('.party-speaker').filter({hasText:'Companion 1'}).waitFor({timeout:5000});
   await pages[0].locator('#voice-volume').fill('100');await pages[0].locator('#voice-mute').click();
   // Reload uses this tab's private reconnect credential without creating a fifth hero.
+  const beforeReconnect=await pages[3].evaluate(()=>window.descent.renderer.snapshot.cartography.tiles.map(t=>`${t.x},${t.y}`));
   await pages[3].reload();await pages[3].locator('#rejoin-party').click();await pages[3].waitForFunction(()=>window.descent.state.party?.models===3,{},{timeout:15000});assert.equal(await pages[3].evaluate(()=>window.descent.state.party.id),ids[3]);
+  const afterReconnect=await pages[3].evaluate(()=>window.descent.renderer.snapshot.cartography.tiles.map(t=>`${t.x},${t.y}`));assert.ok(beforeReconnect.every(key=>afterReconnect.includes(key)),'personal exploration survives reconnect');
   // Presentation fixture: inspect every class rig, including models not chosen above.
   const gallery=await browser.newPage({viewport:{width:1600,height:900}});await gallery.goto(url);
   const rigs=await gallery.evaluate(async()=>{

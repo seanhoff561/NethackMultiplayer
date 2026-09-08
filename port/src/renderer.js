@@ -276,6 +276,7 @@ export class DungeonRenderer {
     if (!this.cameraPlaced && snapshot.player) {
       this.setPose({ x: snapshot.player.x + 0.5, y: snapshot.player.y + 0.5, yaw: this.pose.yaw, pitch: 0 });
     }
+    if(this.mapHeld&&snapshot.multiplayer)this.holdMap(true,snapshot,snapshot.cartography?.elapsed||0);
   }
 
   _buildTerrain(tiles) {
@@ -1079,7 +1080,7 @@ export class DungeonRenderer {
       const mesh=new THREE.Mesh(geometry,material);mesh.name='held-parchment';this.viewScene.add(mesh);
       this.parchment={canvas,texture,mesh};
     }
-    this.mapRecord=mapRecord(snapshot,elapsed);drawParchment(this.parchment.canvas,this.mapRecord);this.parchment.texture.needsUpdate=true;
+    this.mapRecord=mapRecord(snapshot,snapshot.multiplayer?(snapshot.cartography?.elapsed??elapsed):elapsed);drawParchment(this.parchment.canvas,this.mapRecord);this.parchment.texture.needsUpdate=true;
   }
   highlightPickup(id,door=null){
     const key=id!==null?`object:${id}`:door?`door:${door.x},${door.y}`:null;if(this.highlightKey===key)return;

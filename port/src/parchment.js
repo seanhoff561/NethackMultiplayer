@@ -1,10 +1,17 @@
 // A field sketch records the explored native glyphs, never hidden geometry.
 export function mapRecord(snapshot,elapsed=0){
-  const p=snapshot?.player||{};
-  return {level:p.dungeon||'The dungeon',depth:p.depth||1,turn:snapshot?.turn||0,
+  const p=snapshot?.player||{},personal=snapshot?.multiplayer?snapshot.cartography:null;
+  return {level:p.dungeon||'The dungeon',depth:p.depth||1,turn:snapshot?.turn||0,levelId:snapshot?.levelId,ownerId:personal?.ownerId,ownerName:personal?.ownerName,width:snapshot?.width||80,height:snapshot?.height||21,
     time:`${Math.floor(elapsed/3600)}:${String(Math.floor(elapsed/60)%60).padStart(2,'0')}:${String(Math.floor(elapsed)%60).padStart(2,'0')}`,
     player:{x:Math.floor(p.x||0),y:Math.floor(p.y||0)},
-    tiles:(snapshot?.tiles||[]).filter(t=>t.seen===true||t.explored===true).map(t=>({x:t.x,y:t.y,char:t.char||' '}))};
+    tiles:(personal?.tiles||snapshot?.tiles||[]).filter(t=>t.seen===true||t.explored===true).map(t=>({x:t.x,y:t.y,char:t.char||' '}))};
+}
+export function mapBounds(record){
+  const width=record.width||80,height=record.height||21;
+  if(!record.ownerId)return {x:0,y:0,width,height};
+  const points=[...record.tiles,record.player],xs=points.map(p=>p.x),ys=points.map(p=>p.y),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const columns=Math.min(width,Math.max(24,maxX-minX+5)),rows=Math.min(height,Math.max(12,maxY-minY+5));
+  return {x:Math.max(0,Math.min(width-columns,Math.floor((minX+maxX+1-columns)/2))),y:Math.max(0,Math.min(height-rows,Math.floor((minY+maxY+1-rows)/2))),width:columns,height:rows};
 }
 export function drawParchment(canvas,record){
   const c=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
@@ -14,9 +21,9 @@ export function drawParchment(canvas,record){
   for(let i=0;i<9500;i++){const x=(i*7919)%w,y=(i*3571)%h;c.fillStyle=i%2?'#4f361c09':'#fff6ca0c';c.fillRect(x,y,1+i%3,1);}
   c.strokeStyle='#76583b55';c.lineWidth=2;c.strokeRect(27,25,w-54,h-50);
   c.fillStyle='#392d25';c.font='italic 36px Georgia';c.fillText(`${record.level} · depth ${record.depth}`,55,73);
-  c.font='21px Georgia';c.fillText(`Surveyed ${record.time}  ·  turn ${record.turn}`,57,110);
+  c.font='21px Georgia';c.fillText(`${record.ownerName?`${record.ownerName}'s map  ·  `:''}Surveyed ${record.time}  ·  turn ${record.turn}`,57,110);
   c.beginPath();c.moveTo(55,129);c.lineTo(w-55,131);c.stroke();
-  const cell=Math.min((w-110)/80,(h-215)/21),ox=(w-80*cell)/2,oy=155;
+  const bounds=mapBounds(record),columns=bounds.width,rows=bounds.height,cell=Math.min((w-110)/columns,(h-215)/rows),ox=(w-columns*cell)/2-bounds.x*cell,oy=155-bounds.y*cell;
   c.lineWidth=1.5;c.strokeStyle='#45372bd0';c.font=`${cell*.95}px Georgia`;c.textAlign='center';c.textBaseline='middle';
   for(const t of record.tiles){
     const x=ox+(t.x+.5)*cell,y=oy+(t.y+.5)*cell,ch=t.char;

@@ -333,7 +333,7 @@ export class GameUI {
   drawMap(snapshot = this.snapshot, canvas = this.$('#minimap')) {
     if (!canvas || !snapshot) return;
     const ctx = canvas.getContext('2d');
-    const tiles = snapshot.tiles || snapshot.map || [];
+    const tiles = (snapshot.multiplayer ? snapshot.cartography?.tiles : null) || snapshot.tiles || snapshot.map || [];
     const width = snapshot.width || (Array.isArray(tiles[0]) ? tiles[0].length : 80);
     const height = snapshot.height || (Array.isArray(tiles[0]) ? tiles.length : 21);
     const local = canvas.id === 'minimap';
