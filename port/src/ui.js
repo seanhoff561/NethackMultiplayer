@@ -6,6 +6,26 @@ import {SPELL_LETTERS,spellName,spellDetails,spellChoices,bindSpellChoices,rebin
 const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const capital = value => String(value || '').replace(/^./, c => c.toUpperCase());
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const inventorySections = [
+  ['$', 'Coins', 'coin'], ['"', 'Amulets', 'amulet'], [')', 'Weapons', 'weapon', 'ammo'],
+  ['[', 'Armor', 'armor'], ['%', 'Food', 'food'], ['?', 'Scrolls', 'scroll'],
+  ['+', 'Spellbooks', 'spellbook'], ['!', 'Potions', 'potion'], ['=', 'Rings', 'ring'],
+  ['/', 'Wands', 'wand'], ['(', 'Tools', 'tool'], ['*', 'Gems', 'gem'],
+  ['`', 'Rocks', 'rock'], ['0', 'Iron balls', 'ball'], ['_', 'Chains', 'chain'],
+];
+export function groupInventory(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const category = String(item.category || item.type || item.kind || '').toLowerCase();
+    const section = inventorySections.find(([symbol]) => symbol === item.symbol)
+      || inventorySections.find(([, title, ...kinds]) => title.toLowerCase() === category || kinds.includes(category));
+    const title = section?.[1] || item.category || 'Other items';
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(item);
+  }
+  const order = title => { const index = inventorySections.findIndex(s => s[1] === title); return index < 0 ? inventorySections.length : index; };
+  return [...groups].sort(([a], [b]) => order(a) - order(b));
+}
 export function searchCommands(commands,filter){
   const query=filter.toLowerCase().trim();if(!query)return commands;
   const score=c=>{const name=c.name.toLowerCase();return name===query?0:name.startsWith(query)?1:name.includes(query)?2:3;};
@@ -136,7 +156,7 @@ export class GameUI {
         <div class="hud-top-left player-status" aria-label="Character status">
           <div class="status-heading"><b id="player-name">Adventurer</b><span id="level-xp">Lv 1 · 0 / 20 XP</span></div>
           <div class="vital-bars"><div class="vital-row"><span class="vital-label">HEALTH</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">—</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">—</span></div></div>
-          <div class="status-details"><span id="hunger-value">Ready</span><span id="weight-value">Unburdened</span><span><b id="gold-value">0</b> gold</span></div><div id="hud-conditions"></div>
+          <div class="status-details"><span id="hunger-value">Ready</span><span id="weight-value">Unburdened</span><span><b id="gold-value">0</b> gold</span><span title="Armor class — lower is better">AC <b id="armor-value">10</b></span></div><div id="hud-conditions"></div>
         </div>
         <div class="compass" aria-label="Facing direction"><span class="compass-side" id="compass-left">W</span><i></i><span class="compass-center" id="compass-heading">N</span><i></i><span class="compass-side" id="compass-right">E</span><b>▼</b></div>
         <div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
@@ -453,12 +473,7 @@ export class GameUI {
 
   showInventory(items = []) {
     if (items.items) items = items.items;
-    const groups = new Map();
-    for (const item of items) {
-      const category = item.category || item.type || 'Possessions';
-      if (!groups.has(category)) groups.set(category, []);
-      groups.get(category).push(item);
-    }
+    const groups = groupInventory(items);
     const body = `<div class="inventory-summary"><span>${items.length} possessions</span><span>${Number(this.snapshot?.player?.gold || 0).toLocaleString()} gold pieces</span></div><div class="inventory-list">${items.length ? [...groups].map(([category, list]) => `<div class="menu-section">${esc(capital(category))}</div>${list.map(item => `<button class="inventory-item" data-item-id="${esc(item.id??'')}" data-item-key="${esc(item.key || item.letter || '')}"><kbd>${esc(item.key || item.letter || '·')}</kbd><span>${esc(item.text || item.name || '')}</span>${item.equipped || /being worn|weapon in hand|wielded/i.test(item.text || '') ? '<b class="equipped-label">EQUIPPED</b>' : ''}${item.quantity > 1 ? `<small>×${item.quantity}</small>` : ''}</button>`).join('')}`).join('') : '<p class="empty-state">Your pack is empty.</p>'}</div><div class="inventory-tools"><button disabled data-inventory-action="w">Wield</button><button disabled data-inventory-action="W">Wear</button><button disabled data-inventory-action="a">Apply</button><button disabled data-inventory-action="q">Drink</button><button disabled data-inventory-action="e">Eat</button><button disabled data-inventory-action="r">Read</button><button disabled data-inventory-action="d">Drop</button></div><div class="panel-footer"><span id="inventory-instruction">Select an item, then choose an action.</span><kbd>ESC to close</kbd></div>`;
     this.openPanel('inventory', 'Your possessions', body, { selectedKey: null,inventorySignature:JSON.stringify(items.map(i=>[i.id,i.key,i.name,i.quantity,i.equipped])) });
     this.$('#panel-layer').querySelectorAll('[data-item-key]').forEach(button => button.addEventListener('click', () => {
