@@ -1,5 +1,6 @@
 import {creatureProfile} from '../src/creatures.js';
 import {meleeTarget} from '../src/melee.js';
+import {directionKey,headingDirection} from './commands.mjs';
 // NetHack: Descent, 2026-09-07. Authoritative fixed-step spatial simulation.
 import {CollisionWorld,integratePlayer,startJump,advanceJump,stairFinished,stairLocal,stairWorld,CELL,cellKey} from '../src/spatial.js';
 
@@ -16,6 +17,7 @@ export class SpatialSimulation {
       this.player=this.world.spawn(p.x,p.y);this.projected=null;
     }
     this.blocked=p.immobile||p.hp<=0;
+    this.canStruggle=!!p.conditions?.includes('Trapped')&&!p.conditions.includes('Swallowed')&&!p.busy&&p.hp>0&&(p.encumbrance||0)<5;
     this.nativePlayer={x:p.x,z:p.y};
     this.player.speedScale=p.speedScale??1;
     const present=new Set();
@@ -29,6 +31,16 @@ export class SpatialSimulation {
     for(const id of this.actors.keys())if(!present.has(id))this.actors.delete(id);
   }
   setInput(input){this.input={forward:Math.max(-1,Math.min(1,Number(input.forward)||0)),strafe:Math.max(-1,Math.min(1,Number(input.strafe)||0)),yaw:Number.isFinite(input.yaw)?input.yaw:0,run:!!input.run,crouch:!!input.crouch,defend:!!input.defend};this.inputAt=this.time;}
+  idleAction(){
+    // Traps consume attempted moves, not waiting turns. Sample held intent at
+    // the native clock cadence; never queue old movement or move the 3D body.
+    const {forward=0,strafe=0,yaw=0}=this.input;
+    if(this.canStruggle&&!this.transition&&this.time-this.inputAt<.3&&Math.hypot(forward,strafe)>.01){
+      const [dx,dz]=headingDirection(yaw-Math.atan2(strafe,forward));
+      return {key:directionKey(dx,dz)};
+    }
+    return {key:'.',idle:true};
+  }
   jump(){return !this.blocked&&!this.transition&&startJump(this.player);}
   release(){this.input={yaw:this.input.yaw||0};}
   waypoint(actor,target) {

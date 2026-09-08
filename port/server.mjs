@@ -81,6 +81,7 @@ function start(character={},resume=false){
   if(existsSync(path.join(runtime,config.name+'.NetHack-saved-game'))&&existsSync(spatialFile)){try{restoredSpatial=JSON.parse(readFileSync(spatialFile,'utf8'));}catch{}}
   lastPrompt=null;lastSnapshot=null;spatial=new SpatialSimulation();
   clock=new RealtimeClock({act:action=>{
+    if(action.idle&&!session.virtualPrompt)action=spatial.idleAction();
     spatial.project(session);
     if(action.targetCell)action.aim=directionKey(action.targetCell.x-spatial.projected.x,action.targetCell.z-spatial.projected.z);
     if(action.spatialMelee)action.melee=spatial.melee()||0;

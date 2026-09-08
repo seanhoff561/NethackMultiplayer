@@ -118,6 +118,17 @@ try{
     window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
   });
   assert.equal(await page.locator('#hunger-alert').isVisible(),false);results.push('Weak hunger shows a compact center warning; eating clears it');
+  await page.evaluate(()=>{
+    const s=structuredClone(window.descent.renderer.snapshot);s.type='snapshot';s.player.conditions=['Trapped'];s.player.immobile=true;
+    window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
+  });
+  assert.match(await page.locator('#hud-conditions').textContent(),/Trapped — hold WASD to struggle/);
+  await page.evaluate(()=>{
+    const s=structuredClone(window.descent.renderer.snapshot);s.type='snapshot';s.player.conditions=[];s.player.immobile=false;
+    window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
+  });
+  assert.equal(await page.locator('#hud-conditions').textContent(),'');results.push('Trapped status explains held movement and clears after escape');
+
   const closeTarget=await page.evaluate(()=>{
     const s=structuredClone(window.descent.renderer.snapshot),p=window.descent.state.pose;
     const sign=p.x-Math.floor(p.x)>.5?1:-1,target={x:Math.floor(p.x)+sign,y:Math.floor(p.y)};
