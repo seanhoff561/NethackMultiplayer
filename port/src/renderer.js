@@ -432,16 +432,6 @@ export class DungeonRenderer {
         this.mesh(group,'box',this.material(0x938771,.3,.7),[sx,sy+.004,sz+run*.45],[1.32,.025,.026]);
     }
     this._stoneBox(group,this.floorMaterial,[0,sign*H/2-.11,-1.06],[2.78,.22,.83]);
-    const rail=this.material(0x6e6652,.65,.4);
-    for(const side of [-1,1]){
-      const xx=side*1.25,start=side<0?0:H/2,end=side<0?H/2:H;
-      const z1=side<0?1.45:-.65,z2=side<0?-.65:1.45;
-      this.bone(group,[xx,sign*start+.9,z1],[xx,sign*end+.9,z2],.04,rail);
-      for(let i=0;i<4;i++){
-        const t=i/3,h=sign*(start+(end-start)*t),zz=z1+(z2-z1)*t;
-        this.bone(group,[xx,h,zz],[xx,h+.9,zz],.028,rail);
-      }
-    }
     const lamp=new THREE.PointLight(0xa4a4d8,4.5,7,1.8);lamp.position.set(0,sign*H/2+1.7,-1.15);group.add(lamp);
     const flame=new THREE.Sprite(this.flameMaterial);flame.position.copy(lamp.position);flame.scale.set(.3,.55,.3);group.add(flame);
     // A dark opening beyond the final landing gives the connection real depth.

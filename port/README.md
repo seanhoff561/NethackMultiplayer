@@ -32,16 +32,17 @@ Open `http://127.0.0.1:5177`. Choose a name, role, race, gender and alignment, t
 | Left mouse | Attack toward the crosshair with your wielded weapon |
 | Space | Jump; a short physical hop with wall collision |
 | M | Raise/lower the parchment map; look down to read it |
-| F / Z | Choose a spell by letter while continuing to aim with the mouse |
+| F | Choose a spell by letter while continuing to aim with the mouse |
 | Hold right mouse | Defend with your shield or wielded weapon |
-| B | Zap a wand |
+| Z | Zap a wand |
+| G | Eat |
 | E | Pick up the nearby object you are facing, open a door or interact |
 | C / T | Fire quivered ammunition / throw an item |
 | I | Inventory; select an item, then Wield, Wear, Apply, Drink, Eat, Read or Drop |
 | Tab | Search the complete engine command registry |
 | 1 / 2 / 3 / 4 / 5 / 6 | Wield / cast / zap / quaff / apply / eat |
 | Q / R / X | Quaff / read / swap weapons |
-| G / K / P / V | Pick up / kick / pray / search |
+| K / P / V | Kick / pray / search |
 | Walk along stairs | Follow the left flight, turn on the landing, then follow the return flight to the next floor |
 | Tab → Ascend / Descend | Original stair commands |
 | Arrow keys | Keyboard turning and forward/backward movement |
@@ -62,7 +63,7 @@ Each physical key has one gameplay binding. Menus own their displayed letter acc
 - Authoritative 60 Hz movement in metres, with matching client prediction: walking at 3.1 m/s, running at 5.15 m/s and crouching at 1.55 m/s, modified by native haste and carrying capacity. Burdened, Stressed, Strained and Overtaxed multiply speed by 0.75, 0.5, 0.25 and 0.125; Overloaded prevents movement. Swept circle collision, wall sliding, normalized diagonal speed, door slabs, architectural props and creature bodies. WASD sends analog intent, never grid movement commands.
 - Continuous creature steering with route finding, line-of-sight awareness, pursuit memory, pet goals, fleeing, collision and walk animation. Normal-speed hostile creatures can match the player’s run; native fast/slow creature speeds remain distinct. Motion and native status updates continue while menus are open.
 - Physical melee targeting uses a forward cone, metre-space reach, elevation and obstruction tests, followed by native damage resolution.
-- Full-height 4.2 metre stairwells, two flights, a turning landing, treads, rails, masonry and light. Foot elevation follows the flights in both directions. Reaching the final landing invokes the native floor connection with a brief fade.
+- Full-height 4.2 metre stairwells, two flights, a turning landing, treads, masonry and light. Foot elevation follows the flights in both directions. Reaching the final landing invokes the native floor connection with a brief fade.
 - Whole-level architectural geometry remains present independent of map exploration. Merged floors, ceilings and walls use consistently scaled masonry textures. Hardware occlusion, torchlight, shadows and distance fog determine the view; discovery flags remain available to native commands.
 - Layered stone color and relief textures, wood grain, ceilings and masonry, animated torches, local lights and shadows, fog, dust, branch color variation, fountains, altars, doors, stairs, trees, graves, thrones, bars, lava, water and discovered traps.
 - Procedural creature families covering humanoids, quadrupeds, insects, bats, dragons, fungi, slimes, snakes, floating creatures and mimics. Human-sized creatures stand roughly as tall as the player; large creatures and major bosses fill much of a corridor. Legs and arms respond to movement, and native attack events drive visible strikes and lunges, including misses. Armor slots, tools, food, projectiles and weapons use appearance-aware models so unidentified equipment does not reveal its hidden magical identity.

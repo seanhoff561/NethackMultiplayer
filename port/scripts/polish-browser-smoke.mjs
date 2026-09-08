@@ -85,8 +85,8 @@ try{
     assert.equal(await page.locator('.menu-panel').count(),0);results.push('Separate dropped objects can be picked up directly without a pile dialog');
   }else throw Error(`Dropped object is not within reach: ${nearest.d}`);
   await page.waitForTimeout(700);await page.screenshot({path:'test-results/polish-game.png'});
-  await page.keyboard.press('b');await page.locator('.prompt-panel,.menu-panel').waitFor();await page.keyboard.press('Escape');
-  results.push('B opens wand selection independently from Z spell selection');
+  await page.keyboard.press('z');await page.locator('.prompt-panel,.menu-panel').waitFor();await page.keyboard.press('Escape');
+  results.push('Z opens wand selection independently from F spell selection');
   // Isolated presentation fixture: native gameplay above, controlled geometry below.
   await page.evaluate(()=>{window.__fixture=true;window.requestAnimationFrame=()=>0;});await page.waitForTimeout(80);
   await page.keyboard.press('i');

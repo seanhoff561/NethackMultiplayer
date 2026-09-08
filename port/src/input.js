@@ -4,8 +4,8 @@ export const BINDINGS = Object.freeze({
   ArrowUp:'forward',ArrowDown:'back',ArrowLeft:'turnLeft',ArrowRight:'turnRight',
   ShiftLeft:'run',ShiftRight:'run',ControlLeft:'crouch',ControlRight:'crouch',
   KeyI:'inventory',Tab:'commands',KeyE:'interact',Space:'jump',KeyM:'map',
-  KeyF:'cast',KeyC:'fire',KeyT:'throw',KeyZ:'cast',KeyB:'wand',KeyQ:'quaff',KeyR:'read',
-  KeyX:'swap',KeyG:'pickup',KeyK:'kick',KeyP:'pray',KeyV:'search',
+  KeyF:'cast',KeyC:'fire',KeyT:'throw',KeyZ:'wand',KeyQ:'quaff',KeyR:'read',
+  KeyX:'swap',KeyG:'eat',KeyK:'kick',KeyP:'pray',KeyV:'search',
   Digit1:'wield',Digit2:'cast',Digit3:'wand',Digit4:'quaff',Digit5:'apply',Digit6:'eat',
   F10:'fullscreen',Escape:'settings',
 });
