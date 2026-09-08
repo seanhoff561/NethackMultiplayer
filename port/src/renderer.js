@@ -465,19 +465,46 @@ export class DungeonRenderer {
   }
 
   _fountain(x, z) {
-    const group = new THREE.Group(); group.position.set(x, 0, z); this.world.add(group);
-    this.mesh(group, 'cylinder', this.wallMaterial, [0, 0.16, 0], [1.85, 0.32, 1.85]);
-    this.mesh(group, 'cylinder', this.wallMaterial, [0, 0.39, 0], [1.58, 0.32, 1.58]);
-    this.mesh(group, 'cylinder', this.waterMaterial, [0, 0.557, 0], [1.36, 0.018, 1.36]);
-    this.mesh(group, 'torus', this.wallMaterial, [0, 0.56, 0], [1.55, 1.55, 1.2], [Math.PI / 2, 0, 0]);
-    this.mesh(group, 'cylinder', this.wallMaterial, [0, 0.81, 0], [0.27, 0.84, 0.27]);
-    this.mesh(group, 'sphere', this.material(0x889f8a, 0.35, 0.5), [0, 1.25, 0], [0.46, 0.39, 0.46]);
-    const streams = new THREE.Group(); group.add(streams);
-    for (let i = 0; i < 5; i++) {
-      const angle = i / 5 * Math.PI * 2;
-      this.bone(streams, [Math.cos(angle) * 0.15, 1.28, Math.sin(angle) * 0.15], [Math.cos(angle) * 0.44, 0.57, Math.sin(angle) * 0.44], 0.013, this.material(0x8ac6c3, 0.2, 0.15, 0x225958));
+    const group = new THREE.Group();group.name='stone-fountain';group.position.set(x,0,z);this.world.add(group);
+    if(!this.fountainStone){
+      this.fountainStone=[0x89867d,0x77766f,0x979187].map(color=>this.keep(new THREE.MeshStandardMaterial({color,map:this.wallTexture,bumpMap:this.wallBump,bumpScale:.065,roughness:.96,flatShading:true})));
+      this.fountainWater=this.keep(new THREE.MeshStandardMaterial({color:0x63969b,roughness:.16,metalness:.08,transparent:true,opacity:.72,depthWrite:false,side:THREE.DoubleSide}));
     }
-    this.features.push({ type: 'fountain', group: streams });
+    const stone=this.fountainStone,water=this.fountainWater;
+    // A hollow masonry basin, with separate blocks and a submerged stone bed.
+    this.mesh(group,'box',stone[1],[0,.09,0],[1.64,.18,1.64]);
+    this.mesh(group,'box',stone[0],[0,.21,0],[1.48,.14,1.48]);
+    for(const side of [-1,1])for(let i=0;i<3;i++){
+      const offset=(i-1)*.50;
+      this.mesh(group,'box',stone[(i+(side+1)/2)%3],[offset,.405,side*.65],[.488,.27,.22]);
+      this.mesh(group,'box',stone[(i+1)%3],[side*.65,.405,offset],[.22,.27,.488]);
+    }
+    for(const side of [-1,1]){
+      this.mesh(group,'box',stone[2],[0,.56,side*.65],[1.56,.10,.25]);
+      this.mesh(group,'box',stone[2],[side*.65,.56,0],[.25,.10,1.06]);
+    }
+    const pool=this.mesh(group,'box',water,[0,.448,0],[1.075,.025,1.075]);pool.name='fountain-water';pool.castShadow=false;
+    // A plain stone pier and carved spillway replace the floating ornamental head.
+    this.mesh(group,'box',stone[1],[0,.34,-.38],[.56,.13,.44]);
+    for(let i=0;i<3;i++)this.mesh(group,'box',stone[i],[0,.49+i*.23,-.38],[.38,.22,.32]);
+    this.mesh(group,'box',stone[2],[0,1.09,-.38],[.50,.12,.44]);
+    this.mesh(group,'box',stone[1],[0,.913,-.05],[.29,.065,.46]);
+    for(const side of [-1,1])this.mesh(group,'box',stone[0],[side*.115,.975,-.05],[.06,.08,.46]);
+    this.mesh(group,'box',water,[0,.955,-.05],[.15,.017,.45]).castShadow=false;
+    // A continuous gravity-curved sheet of water, without rotating jets or glow.
+    if(!this.geometries.has('fountain-spill')){
+      const vertices=[],indices=[];
+      for(let i=0;i<=10;i++){const t=i/10;for(const side of [-1,1])vertices.push(side*(.075-t*.02),.955-.503*t*t,.18+.20*t);if(i<10){const n=i*2;indices.push(n,n+1,n+2,n+1,n+3,n+2);}}
+      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setIndex(indices);geometry.computeVertexNormals();this.geometries.set('fountain-spill',this.keep(geometry));
+    }
+    const spill=this.mesh(group,'fountain-spill',water);spill.castShadow=false;
+    const droplets=Array.from({length:5},(_,i)=>{const drop=this.mesh(group,'box',water,[0,0,0],[.018,.038,.018]);drop.castShadow=false;return drop;});
+    const ripples=Array.from({length:3},()=>{
+      const ripple=new THREE.Group(),material=this.keep(new THREE.MeshBasicMaterial({color:0xb1d0cb,transparent:true,opacity:.2,depthWrite:false}));ripple.position.set(0,.467,.34);group.add(ripple);
+      for(const side of [-1,1]){this.mesh(ripple,'box',material,[side*.5,0,0],[.014,.003,1]);this.mesh(ripple,'box',material,[0,0,side*.5],[1,.003,.014]);}
+      return {group:ripple,material};
+    });
+    this.features.push({type:'fountain',group,droplets,ripples,phase:hash(x,z)*6});
   }
 
   _altar(x, z) {
@@ -1353,7 +1380,10 @@ export class DungeonRenderer {
     }
     for(const feature of this.features){
       const t=this.time,phase=feature.phase||0,g=feature.group;
-      if(feature.type==='fountain')g.rotation.y=t*.13;
+      if(feature.type==='fountain'){
+        feature.droplets.forEach((drop,i)=>{const fall=(t*1.6+phase+i/5)%1;drop.position.set(Math.sin(i*4.1)*.055,.95-.50*fall*fall,.18+.20*fall);});
+        feature.ripples.forEach((ripple,i)=>{const age=(t*.65+phase+i/3)%1;ripple.group.scale.setScalar(.035+age*.31);ripple.material.opacity=(1-age)*.22;});
+      }
       else if(feature.type==='hanging')g.rotation.z=Math.sin(t*.61+phase)*feature.amplitude+Math.sin(t*1.1+phase)*feature.amplitude*.2;
       else if(feature.type==='trickle'){g.position.y=2.65-((t*.36+feature.index*.31+phase)%1)*2.58;g.visible=g.position.y>.07;}
       else if(feature.type==='wisp'){const a=t*.18+phase+feature.index*1.57;g.position.set(Math.sin(a)*.23,1.62+Math.cos(a*.7)*.31,.25+Math.cos(a)*.08);}
