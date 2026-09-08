@@ -762,11 +762,17 @@ hitum(struct monst *mon, struct attack *uattk)
         *secondwep = u.twoweap ? uswapwep : (struct obj *) 0;
     int tmp, dieroll, mhit, armorpenalty, attknum = 0,
         x = u.ux + u.dx, y = u.uy + u.dy, oldumort = u.umortality;
+#ifdef DESCENT_SPATIAL
+    extern unsigned descent_swing_target;
+#endif
 
     /* Cleaver attacks three spots, 'mon' and one on either side of 'mon';
        it can't be part of dual-wielding but we guard against that anyway;
        cleave return value reflects status of primary target ('mon') */
     if (u_wield_art(ART_CLEAVER) && !u.twoweap
+#ifdef DESCENT_SPATIAL
+        && !descent_swing_target
+#endif
         && !u.uswallow && !u.ustuck && !NODIAG(u.umonnum))
         return hitum_cleave(mon, uattk);
 

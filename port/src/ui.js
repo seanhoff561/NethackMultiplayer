@@ -140,6 +140,7 @@ export class GameUI {
         </div>
         <div class="compass" aria-label="Facing direction"><span class="compass-side" id="compass-left">W</span><i></i><span class="compass-center" id="compass-heading">N</span><i></i><span class="compass-side" id="compass-right">E</span><b>▼</b></div>
         <div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
+        <div id="hunger-alert" class="hunger-alert" role="status" hidden><b id="hunger-alert-text">Weak from hunger</b><span><kbd>G</kbd> Eat</span></div>
         <div class="message-log" id="message-log" role="log" aria-live="polite" aria-relevant="additions"></div>
         <aside id="awareness" class="awareness" aria-label="Surroundings" hidden>
           <div id="focus-readout" hidden><span class="awareness-heading" id="focus-kind">Looking at</span><b id="focus-name"></b></div>
@@ -253,6 +254,11 @@ export class GameUI {
     set('#armor-value', p.ac);
     set('#gold-value', Number(p.gold || 0).toLocaleString());
     const hunger = typeof p.hunger==='string'&&p.hunger?p.hunger:'Ready';
+    const hungerStage=/weak|faint|starv/i.test(hunger)?hunger.toLowerCase():'';
+    if(hungerStage!==this.hungerStage){
+      this.hungerStage=hungerStage;clearTimeout(this.hungerTimer);const alert=this.$('#hunger-alert');alert.hidden=!hungerStage;
+      if(hungerStage){this.$('#hunger-alert-text').textContent=/faint|starv/.test(hungerStage)?'You are starving':'Weak from hunger';this.hungerTimer=setTimeout(()=>alert.hidden=true,7500);}
+    }
     set('#level-xp',`Lv ${p.level||1} · ${experienceLabel(p.level||1,p.experience||0)}`);
     this.$('#level-xp').title=p.level>=30?'Maximum experience level':'Current total XP / total XP required for the next level';
     set('#weight-value',['Unburdened','Burdened','Stressed','Strained','Overtaxed','Overloaded'][p.encumbrance||0]);
@@ -492,7 +498,7 @@ export class GameUI {
     const playing=['playing','play','game'].includes(this.mode);
     const rows=[
       ['W A S D','Walk'],['MOUSE','Look'],['SHIFT / CTRL','Run / crouch'],['LEFT CLICK','Attack'],
-      ['E','Interact / pick up the object you face'],['G','Eat'],['I','Inventory — select an item, then an action'],
+      ['E','Pick up objects / loot chests and boxes'],['L','Close the open door you face'],['G','Eat'],['I / ALT','Inventory — select an item, then an action'],
       ['TAB','Search and select any NetHack command'],['SPACE','Jump'],['M','Hold map · look down to read'],['F','Choose a spell by letter while aiming'],['HOLD RIGHT CLICK','Defend with your shield or weapon'],['Z','Zap a wand'],
       ['C / T','Fire ammunition / throw an item'],['Q / R','Drink a potion / read'],['X','Swap weapons'],
       ['K / P / V','Kick / pray / search'],['1 / 2 / 3','Wield / cast / zap'],['4 / 5 / 6','Drink / apply / eat'],
@@ -513,8 +519,8 @@ export class GameUI {
     const spells=`<div class="field-guide"><p>Press <kbd>F</kbd> to aim a spell, then its letter below. Letters apply only inside spell selection. Assigning an occupied letter swaps the two spells. Uppercase letters use Shift.</p></div><p id="spell-binding-status" role="status">${this.spellsLoading?'Reading your known spells…':esc(this.spellStatus||(!playing?'Enter a dungeon to view your known spells.':spellRows.length?'Changes are saved automatically.':'You do not know any spells yet.'))}</p><div class="spell-bindings">${spellRows.map((item,index)=>`<label class="setting-row"><div><strong>${esc(capital(spellName(item)))}</strong><small>${esc(spellDetails(item))}</small></div><select data-spell-index="${index}" aria-label="Letter for ${esc(spellName(item))}">${[...SPELL_LETTERS].map(key=>`<option value="${key}" ${key===item.key?'selected':''}>${key}</option>`).join('')}</select></label>`).join('')}</div>${playing?'<button class="text-button" data-settings-section="spells">Refresh known spells</button>':''}<button class="text-button" id="spell-bindings-reset">Restore native letters</button>`;
     const guide=`<div class="field-guide">
       <article><h3>Entering commands</h3><p>Press <kbd>Tab</kbd>, type a command name such as <b>engrave</b>, <b>pray</b>, <b>wear</b> or <b>save</b>, then click the result or press <kbd>Enter</kbd>. The complete NetHack command list is searchable here.</p><p>When the game asks for an item or a choice, click it or press its displayed letter. Press <kbd>Escape</kbd> to cancel the choice and return to this menu.</p></article>
-      <article><h3>Your first descent</h3><p>Find the Amulet of Yendor and carry it back to the surface. Use <kbd>WASD</kbd> to explore, aim with the mouse, and <kbd>E</kbd> to open doors or take nearby objects. Walk into the left side of a stairwell, turn on its landing, and follow the return flight.</p></article>
-      <article><h3>Travel and time</h3><p>Space jumps. M raises a parchment map; look down to read it and press M again to put it away. The sketch records explored symbols, dungeon depth and the time it was opened. Eating, dressing, sleep and paralysis fade to black while their native turns pass. Enemies and hunger still advance.</p></article><article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd>. Hold <kbd>Right click</kbd> to defend: a weapon adds 1 armor point; a shield adds its native armor bonus again while raised. <kbd>F</kbd> selects spells; <kbd>Z</kbd> zaps wands; <kbd>G</kbd> selects food to eat. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
+      <article><h3>Your first descent</h3><p>Find the Amulet of Yendor and carry it back to the surface. Use <kbd>WASD</kbd> to explore, aim with the mouse, and <kbd>E</kbd> to open doors, take nearby objects, or loot chests and boxes. Press <kbd>L</kbd> to close the open door you face. Walk into the left side of a stairwell, turn on its landing, and follow the return flight.</p></article>
+      <article><h3>Travel and time</h3><p>Space jumps. M raises a parchment map; look down to read it and press M again to put it away. The sketch records explored symbols, dungeon depth and the time it was opened. Eating, dressing, sleep and paralysis fade to black while their native turns pass. Enemies and hunger still advance.</p></article><article><h3>Weapons, items and magic</h3><p>Press <kbd>I</kbd> or <kbd>Alt</kbd>, select an item, then choose Wield, Wear, Apply, Drink, Eat, Read or Drop. Attack with <kbd>Left click</kbd>. Hold <kbd>Right click</kbd> to defend: a weapon adds 1 armor point; a shield adds its native armor bonus again while raised. <kbd>F</kbd> selects spells; <kbd>Z</kbd> zaps wands; <kbd>G</kbd> selects food to eat. Directional effects use your facing direction. Item properties, charges, armor and resistances follow NetHack's rules.</p></article>
       <article><h3>A living dungeon</h3><p>Menus never pause the world. Creatures keep moving; hunger and recovery continue. Retreat somewhere safer before reading or organizing equipment. Carrying too much slows walking and running; overloaded characters cannot move. Most foes can keep pace with a sprint. Red creatures have taken damage; red screen edges mean you have been hurt.</p></article>
       <article><h3>Keep your expedition</h3><p>Use <b>Save expedition</b> below, or <kbd>Tab</kbd> → Save, and confirm Yes. Continue restores the native save and your position. Closing the window alone does not save or stop the dungeon.</p></article>
     </div>`;

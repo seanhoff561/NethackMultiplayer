@@ -48,6 +48,7 @@ void descent_monster_defeated(unsigned id) {
 }
 /* Active guard augments native armor; no permanent equipment modification. */
 static int defending = 0;
+unsigned descent_swing_target = 0;
 int descent_defense_bonus(void) {
     if (!defending || gm.multi < 0 || u.uswallow || go.occupation) return 0;
     if (uarms) return max(0, ARM_BONUS(uarms));
@@ -296,15 +297,26 @@ static int input_key(const char *kind, const char *prompt) {
         }
         gp.pickup_encumbrance=0;
         for(obj=fobj;obj;obj=obj->nobj)if(obj->o_id==id&&obj->where==OBJ_FLOOR&&distmin(u.ux,u.uy,obj->ox,obj->oy)<=1){
-            (void)pickup_object(obj,obj->quan,FALSE);break;
+            if(Is_box(obj)||obj->otyp==ICE_BOX){
+                extern int descent_loot_floor_container(struct obj *);
+                (void)descent_loot_floor_container(obj);
+            }else (void)pickup_object(obj,obj->quan,FALSE);
+            break;
         }
         return '.';
     }
     if(wire_line[0]=='a'&&!strcmp(kind,"command")) {
         unsigned id=(unsigned)strtoul(p,NULL,10);struct monst *mon;
-        for(mon=fmon;mon;mon=mon->nmon)if(mon->m_id==id&&!DEADMONSTER(mon)&&descent_in_reach(mon)) {
-            u.dx=sgn(mon->mx-u.ux);u.dy=sgn(mon->my-u.uy);
-            force_attack(mon,TRUE);break;
+        for(mon=fmon;mon;mon=mon->nmon)if(mon->m_id==id&&!DEADMONSTER(mon)) {
+            SpatialActor *position=actor_position(mon);
+            double dx=position->x-player_x,dz=position->z-player_z,dy=position->y-player_height;
+            /* The authoritative spatial selector chooses one enlarged body.
+             * Monster attacks keep their original descent_in_reach distance. */
+            if(!spatial_serial||(position->can_hit&&dx*dx+dz*dz<12.96&&dy*dy<3.24)){
+                u.dx=sgn(mon->mx-u.ux);u.dy=sgn(mon->my-u.uy);
+                descent_swing_target=id;force_attack(mon,TRUE);descent_swing_target=0;
+            }
+            break;
         }
         return '.';
     }

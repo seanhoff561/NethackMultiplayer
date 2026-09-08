@@ -2171,6 +2171,23 @@ do_loot_cont(
     return use_container(cobjp, FALSE, (boolean) (cindex < ccount));
 }
 
+/* Descent: use the selected floor container without picking it up or asking
+ * the player to choose again from a pile. Preserve native locks and traps. */
+int
+descent_loot_floor_container(struct obj *container)
+{
+    int result;
+    if (check_capacity((char *) 0)
+        || !able_to_loot(container->ox, container->oy, TRUE))
+        return ECMD_OK;
+    if (Confusion)
+        return doloot();
+    gl.loot_reset_justpicked = TRUE;
+    result = do_loot_cont(&container, 1, 1);
+    gl.loot_reset_justpicked = FALSE;
+    return result;
+}
+
 /* #loot extended command */
 int
 doloot(void)

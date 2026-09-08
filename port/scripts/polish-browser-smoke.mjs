@@ -24,6 +24,9 @@ try{
     const Audio=window.AudioContext;window.AudioContext=class extends Audio{constructor(...a){super(...a);window.__audio=this;}};
   });
   await page.goto(`http://127.0.0.1:${port}`);await page.locator('#enter-dungeon:not([disabled])').waitFor();
+  const titleColor=await page.locator('#character-name').evaluate(e=>getComputedStyle(e).backgroundColor);
+  assert.equal(titleColor,'rgb(21, 26, 40)');await page.screenshot({path:'test-results/blue-title.png'});
+  results.push('Character creation uses the same slate-blue menu palette');
   await page.locator('.title-links [data-action="fullscreen"]').click();await page.waitForFunction(()=>!!document.fullscreenElement);
   await page.keyboard.press('F10');await page.waitForFunction(()=>!document.fullscreenElement);results.push('True fullscreen enters by button and exits with F10');
   await page.locator('#character-name').fill('PolishQA');await page.locator('#character-role').selectOption('Wizard');await page.locator('#enter-dungeon').click();
@@ -49,7 +52,8 @@ try{
   await page.keyboard.down('w');await page.keyboard.down('d');await page.waitForTimeout(120);await page.keyboard.up('d');await page.waitForTimeout(90);
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='input').at(-1).forward),1);
   assert.equal(await page.evaluate(()=>window.__sent.filter(e=>e.type==='input').at(-1).strafe),0);await page.keyboard.up('w');
-  await page.keyboard.press('i');await page.locator('.inventory-panel').waitFor();
+  await page.keyboard.press('AltLeft');await page.locator('.inventory-panel').waitFor();
+  results.push('Bare Alt opens inventory without invoking browser menus');
   assert.equal(await page.locator('[data-inventory-action="d"]').isDisabled(),true);
   const turn=await page.evaluate(()=>window.descent.state.player.turn);await page.waitForTimeout(1000);assert.ok(await page.evaluate(()=>window.descent.state.player.turn)>turn);
   await page.keyboard.down('w');await page.keyboard.press('Escape');await page.waitForTimeout(130);
@@ -103,6 +107,30 @@ try{
   },tracked.id);
   assert.equal(await page.locator('.inventory-item.selected').count(),0);assert.equal(await page.locator('[data-inventory-action="d"]').isDisabled(),true);
   await page.keyboard.press('Escape');results.push('Live inventory fixture: letter reassignment preserves selection; disappearing items clear it');
+  await page.evaluate(()=>{
+    const s=structuredClone(window.descent.renderer.snapshot);s.type='snapshot';s.player.conditions=['Weak'];
+    window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
+  });
+  await page.locator('#hunger-alert').waitFor();assert.equal(await page.locator('#hunger-alert-text').textContent(),'Weak from hunger');
+  await page.screenshot({path:'test-results/hunger-warning.png',animations:'disabled'});
+  await page.evaluate(()=>{
+    const s=structuredClone(window.descent.renderer.snapshot);s.type='snapshot';s.player.conditions=[];
+    window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
+  });
+  assert.equal(await page.locator('#hunger-alert').isVisible(),false);results.push('Weak hunger shows a compact center warning; eating clears it');
+  const closeTarget=await page.evaluate(()=>{
+    const s=structuredClone(window.descent.renderer.snapshot),p=window.descent.state.pose;
+    const sign=p.x-Math.floor(p.x)>.5?1:-1,target={x:Math.floor(p.x)+sign,y:Math.floor(p.y)};
+    s.type='snapshot';s.tiles=s.tiles.filter(t=>t.x!==target.x||t.y!==target.y);s.tiles.push({...target,type:'door_open'});
+    window.__socket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(s)}));
+    const desired=-sign*Math.PI/2,delta=Math.atan2(Math.sin(desired-p.yaw),Math.cos(desired-p.yaw));
+    document.dispatchEvent(new MouseEvent('mousemove',{movementX:-delta/.0022}));return {x:target.x,z:target.y};
+  });
+  await page.keyboard.press('l');
+  const closeAction=await page.evaluate(()=>window.__sent.filter(e=>e.type==='action'&&e.key==='c').at(-1));
+  assert.deepEqual(closeAction?.targetCell,closeTarget);results.push('L sends the native close-door command toward the open door being faced');
+
+
   await page.evaluate(()=>{
     const r=window.descent.renderer,tiles=[];
     for(let x=0;x<9;x++)for(let y=0;y<10;y++)tiles.push({x,y,type:x===0||x===8||y===0||y===9?'wall':'floor'});

@@ -92,9 +92,9 @@ function command(key,itemKey,targetCell,itemId) {
   ui.closePanels(false);pendingPrompt=null;
   action({key:itemKey?key+itemKey:key,aim:aim(),targetCell,itemId});capture();
 }
-function nearbyDoor(){
+function nearbyDoor(open=false){
   if(!body)return null;
-  for(let d=.15;d<2.1;d+=.1){const t=collision.at(body.x-Math.sin(yaw)*d,body.z-Math.cos(yaw)*d);if(t?.type==='door')return t;if(['wall','stone','unknown'].includes(t?.type))return null;}
+  for(let d=.15;d<2.1;d+=.1){const t=collision.at(body.x-Math.sin(yaw)*d,body.z-Math.cos(yaw)*d);if(t?.type===(open?'door_open':'door'))return t;if(['wall','stone','unknown','door'].includes(t?.type))return null;}
   return null;
 }
 function interact(){
@@ -120,6 +120,7 @@ function handleAction(name){
   else if(name==='inventory')command('i');
   else if(name==='commands')command('#commands');
   else if(name==='interact')interact();
+  else if(name==='closeDoor'){const door=nearbyDoor(true);if(door)command('c',null,{x:door.x,z:door.y});else ui.message('Face a nearby open door to close it.');}
   else if(name==='settings')openGameMenu();
   else if(name==='map'){setDefending(false);renderer.holdMap(!renderer.mapHeld,world,motion?.time||0);audio.interface('page');}
   else if(name==='jump'){if(!motion?.blocked&&!motion?.transition&&startJump(body)){pendingJumpUntil=performance.now()+500;audio.jump();send({type:'jump'});}}

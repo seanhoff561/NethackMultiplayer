@@ -46,6 +46,7 @@ $linkText = $linkText.Replace('objtty\x64\monmove.o','..\port\engine\build\monmo
 $linkText = $linkText.Replace('objtty\x64\pickup.o','..\port\engine\build\pickup.o')
 $linkText = $linkText.Replace('objtty\x64\dothrow.o','..\port\engine\build\dothrow.o').Replace('objtty\x64\zap.o','..\port\engine\build\zap.o')
 $linkText = $linkText.Replace('objtty\x64\do_wear.o','..\port\engine\build\do_wear.o')
+$linkText = $linkText.Replace('objtty\x64\uhitm.o','..\port\engine\build\uhitm.o')
 $linkText += "`r`n..\port\engine\build\bridge.o ..\port\engine\build\winshim.o`r`n"
 [IO.File]::WriteAllText((Join-Path $engineRoot 'engine.lnk'),$linkText)
 & (Join-Path $engineRoot 'build-bridge.cmd')

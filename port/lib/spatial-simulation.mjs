@@ -1,4 +1,5 @@
 import {creatureProfile} from '../src/creatures.js';
+import {meleeTarget} from '../src/melee.js';
 // NetHack: Descent, 2026-09-07. Authoritative fixed-step spatial simulation.
 import {CollisionWorld,integratePlayer,startJump,advanceJump,stairFinished,stairLocal,stairWorld,CELL,cellKey} from '../src/spatial.js';
 
@@ -111,16 +112,12 @@ export class SpatialSimulation {
     session.write({kind:'position',value:[this.sequence,...this.level.split(':').map(Number),p.x,p.z,p.y+(p.jumpOffset||0),this.projected.x,this.projected.z]});
     for(const a of this.actors.values()){
       a.projected={x:Math.floor(a.x/CELL),z:Math.floor(a.z/CELL)};
-      const inReach=Math.hypot(a.x-p.x,a.z-p.z)<1.85&&Math.abs(a.y-p.y)<1.5;
+      const inReach=Math.hypot(a.x-p.x,a.z-p.z)<3.6&&Math.abs(a.y-p.y)<1.8;
       session.write({kind:'actor',value:[a.id,a.x,a.z,a.y,inReach&&this.world.lineClear(a,p,.04)?1:0]});
     }
   }
   melee(aimYaw) {
-    if(!this.player)return null;const yaw=aimYaw??this.input.yaw??0,p=this.player;
-    return [...this.actors.values()].filter(a=>{
-      const dx=a.x-p.x,dz=a.z-p.z,d=Math.hypot(dx,dz);
-      return d<1.85&&Math.abs(a.y-p.y)<1.4&&(-Math.sin(yaw)*dx-Math.cos(yaw)*dz)/Math.max(.001,d)>.55&&this.world.lineClear(p,a,.05);
-    }).sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0]?.id??null;
+    return meleeTarget(this.player,this.actors.values(),aimYaw??this.input.yaw??0,this.world);
   }
   packet(){return {type:'motion',levelId:this.level,time:this.time,spawnYaw:this.savedYaw,player:this.player?{...this.player}:null,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y,yaw:a.yaw,radius:a.radius,moving:!!a.moving,visible:a.data.visible})),transition:this.transition,blocked:this.blocked};}
   serialize(){return {levelId:this.level,time:this.time,player:this.player,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y})),yaw:this.input.yaw||0};}

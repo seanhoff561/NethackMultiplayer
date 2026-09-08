@@ -103,3 +103,19 @@ body.floor-transition::after{opacity:1}
 #ui .spell-bindings select{width:72px;flex:none;padding:9px 12px;font:16px Georgia;background:#222636;border:1px solid #676b8355}
 #ui .spell-bindings .setting-row{gap:20px}#ui .spell-bindings small{white-space:pre-wrap;font:10px/1.6 system-ui}
 #ui #spell-binding-status{color:#a8b1c7;font:12px/1.6 system-ui}#ui #spell-bindings-reset{margin-left:20px}
+
+/* Character creation uses the same blue-violet surfaces as the Expedition. */
+#ui .title-screen{--gold:#a5a8c5;--gold-bright:#e0dfee;--gold-dim:#777d9d;--border:#62657866;background:linear-gradient(90deg,#0b0e19f2,#111423ba 52%,#10121c66)}
+#ui .character-sheet{background:linear-gradient(145deg,#191c29f5,#10121cf7);border-color:#62657866;box-shadow:0 20px 65px #05071080}
+#ui .title-screen h1,#ui .title-screen h2,#ui .title-copy,#ui .brand{color:#d5d5e2}
+#ui .title-dot,#ui .title-copy em,#ui .overline,#ui .title-ornament,#ui .sheet-number{color:#aba9c6}
+#ui .title-screen .field-label,#ui .title-subcopy,#ui .title-meta,#ui .role-description,#ui .title-controls,#ui .brand-caption,#ui .edition{color:#949db6}
+#ui .title-screen .primary-button{background:#66617e;border-color:#85819a88;color:#f0ecf8;box-shadow:0 6px 25px #080a1670}
+#ui .title-screen .primary-button:hover{background:#78718e}#ui .title-screen .continue-button{background:#25293b;border-color:#62657888;color:#c9ccdf}
+#ui .title-screen input,#ui .title-screen select,#ui .title-screen option{background:#151a28;color:#d3d6e6;border-color:#62657866}
+#ui .title-screen input:focus,#ui .title-screen select:focus{background:#202639;border-color:#969aba;outline-color:#969aba}
+#ui .title-screen .small-rule,#ui .title-ornament span{background:#777d9d66}#ui .title-screen .engine-status.ready{color:#b1b8d1}#ui .title-screen .engine-status.ready .status-dot{background:#969fc9;box-shadow:0 0 8px #929cc766}
+#ui .title-screen .brand-mark,#ui .title-bottom{border-color:#777d9d44}#ui .title-screen kbd{background:#111624;color:#adb3cd;border-color:#676d8844}
+#ui .hunger-alert{position:absolute;left:50%;top:calc(50% + 60px);transform:translateX(-50%);padding:10px 19px;max-width:85vw;background:linear-gradient(100deg,#191a2bd9,#121724bd);border:1px solid #92819f55;text-align:center;pointer-events:none;animation:hunger-arrive .25s ease-out}
+#ui .hunger-alert b{display:block;color:#dfb6a0;font:16px Georgia;font-weight:400}#ui .hunger-alert span{display:block;margin-top:7px;color:#bdc1d5;font:10px system-ui}#ui .hunger-alert kbd{font-size:9px}
+@keyframes hunger-arrive{from{opacity:0;margin-top:5px}to{opacity:1;margin-top:0}}
