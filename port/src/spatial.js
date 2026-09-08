@@ -2,6 +2,14 @@
 export const CELL = 3;
 export const FLOOR_HEIGHT = 4.2;
 export const RADIUS = .28;
+// Shared tread dimensions keep rendered altar steps and foot support identical.
+export const ALTAR_STEPS = Object.freeze([
+  {half:1.44,height:.18},{half:1.22,height:.36},{half:1,height:.54},{half:.78,height:.72}
+]);
+export function altarHeight(x,z){
+  const distance=Math.max(Math.abs(x),Math.abs(z));
+  return ALTAR_STEPS.reduce((height,step)=>distance<=step.half?step.height:height,0);
+}
 const solid = new Set(['wall','stone','unknown']);
 export const canonical = type => ({'door-closed':'door','door-open':'door_open','stairs-up':'stairs_up','stairs-down':'stairs_down'}[type] || type);
 export const cellKey = (x,z) => `${x},${z}`;
@@ -48,15 +56,15 @@ export class CollisionWorld {
   walkable(x,z) {const t=this.tiles.get(cellKey(x,z));return !!t&&!solid.has(t.type)&&!['door','bars','tree'].includes(t.type);}
   at(x,z) {return this.tiles.get(cellKey(Math.floor(x/CELL),Math.floor(z/CELL)));}
   stairAt(x,z) {return this.stairs.find(s=>Math.abs(x-s.x)<=1.501&&Math.abs(z-s.z)<=1.501);}
-  support(x,z) {const s=this.stairAt(x,z);return s?stairHeight(s,x,z):0;}
+  support(x,z) {const s=this.stairAt(x,z);if(s)return stairHeight(s,x,z);const t=this.at(x,z);return t?.type==='altar'?altarHeight(x-(t.x+.5)*CELL,z-(t.y+.5)*CELL):0;}
   obstacles(x,z,r) {
     const boxes=[];
     for(let tz=Math.floor((z-r)/CELL)-1;tz<=Math.floor((z+r)/CELL)+1;tz++)for(let tx=Math.floor((x-r)/CELL)-1;tx<=Math.floor((x+r)/CELL)+1;tx++) {
       const t=this.tiles.get(cellKey(tx,tz)),cx=(tx+.5)*CELL,cz=(tz+.5)*CELL;
       if(!t||solid.has(t.type))boxes.push({x:cx,z:cz,hx:1.5,hz:1.5});
       else if(t.type==='tree')boxes.push({x:cx,z:cz,hx:.28,hz:.28});
-      else if(['fountain','altar','sink','throne','grave'].includes(t.type)) {
-        const size={fountain:[.76,.76],altar:[.8,.55],sink:[.68,.5],throne:[.78,.8],grave:[.48,.28]}[t.type];
+      else if(['fountain','sink','throne','grave'].includes(t.type)) {
+        const size={fountain:[.76,.76],sink:[.68,.5],throne:[.78,.8],grave:[.48,.28]}[t.type];
         boxes.push({x:cx,z:cz,hx:size[0],hz:size[1]});
       }
       else if(t.type==='door'||t.type==='door_open'||t.type==='bars') {
@@ -113,6 +121,7 @@ export class CollisionWorld {
   }
   spawn(x,z) {
     const body={id:'player',x:(x+.5)*CELL,z:(z+.5)*CELL,y:0,radius:RADIUS};
+    body.y=this.support(body.x,body.z)??0;
     const stair=this.stairAt(body.x,body.z);
     if(stair){Object.assign(body,stairWorld(stair,-.72,1.88));body.y=this.support(body.x,body.z);}
     if(!this.clear(body,body.x,body.z)){

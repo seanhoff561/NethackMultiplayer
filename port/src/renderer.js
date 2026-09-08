@@ -3,7 +3,7 @@ import {itemProfile,detailedItem} from './item-models.js';
 import {creatureProfile} from './creatures.js';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
-import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT} from './spatial.js';
+import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT,ALTAR_STEPS} from './spatial.js';
 import {lootPositions} from './loot.js';
 import {readSight} from './awareness.js';
 import {swingPose} from './presentation.js';
@@ -481,16 +481,22 @@ export class DungeonRenderer {
   }
 
   _altar(x, z) {
-    const group = new THREE.Group(); group.position.set(x, 0, z); this.world.add(group);
-    this.mesh(group, 'box', this.wallMaterial, [0, 0.12, 0], [1.95, 0.24, 1.45]);
-    this.mesh(group, 'box', this.material(0x485450), [0, 0.66, 0], [1.53, 1.08, 1.03]);
-    this.mesh(group, 'box', this.wallMaterial, [0, 1.24, 0], [1.95, 0.18, 1.4]);
-    this.mesh(group, 'box', this.material(0x683637), [0, 1.35, 0], [0.57, 0.026, 1.42]);
-    this.mesh(group, 'box', this.material(0x683637), [0, 0.95, 0.715], [0.57, 0.8, 0.025]);
-    this.mesh(group, 'torus', this.material(0xc4a85a, 0.65, 0.4), [0, 1.02, 0.737], [0.27, 0.27, 0.15]);
-    for (const side of [-1, 1]) {
-      this.mesh(group, 'cylinder', this.material(0xcbbb8c), [side * 0.65, 1.53, 0], [0.09, 0.4, 0.09]);
-      this.mesh(group, 'cone', this.material(0xffd578, 0, 1, 0xffa445), [side * 0.65, 1.78, 0], [0.045, 0.11, 0.045]);
+    const group = new THREE.Group(); group.name='stepped-altar';group.position.set(x,0,z);this.world.add(group);
+    const stone=this.material(0x434452,0,.94),cloth=this.material(0x54334d,0,.96),metal=this.material(0x827764,.35,.72);
+    let previous=0;
+    for(const step of ALTAR_STEPS){
+      const tread=this.mesh(group,'box',stone,[0,(previous+step.height)/2,0],[step.half*2,step.height-previous,step.half*2]);
+      tread.name='altar-walkable-tread';previous=step.height;
+    }
+    const top=ALTAR_STEPS.at(-1).height;
+    this.mesh(group,'box',cloth,[0,top+.007,0],[.48,.014,1.48]);
+    // Inlaid ritual marks and low candles frame the usable offering surface.
+    for(const side of [-1,1]){
+      this.mesh(group,'box',metal,[side*.56,top+.009,0],[.018,.012,1.15]);
+      this.mesh(group,'box',metal,[0,top+.009,side*.56],[1.15,.012,.018]);
+      this.mesh(group,'box',metal,[side*.64,top+.035,-.64],[.17,.07,.17]);
+      this.mesh(group,'cylinder',this.material(0xbcb0a0),[side*.64,top+.15,-.64],[.065,.2,.065]);
+      this.mesh(group,'cone',this.material(0xffc98d,0,1,0xb16b37),[side*.64,top+.285,-.64],[.04,.09,.04]);
     }
   }
 

@@ -135,7 +135,7 @@ export class SpatialSimulation {
   serialize(){return {levelId:this.level,time:this.time,player:this.player,actors:[...this.actors.values()].map(a=>({id:a.id,x:a.x,z:a.z,y:a.y})),yaw:this.input.yaw||0};}
   restore(saved){
     if(!saved||saved.levelId!==this.level||!saved.player||!Number.isFinite(saved.player.x)||!Number.isFinite(saved.player.z))return false;
-    const p={...this.player,x:saved.player.x,z:saved.player.z,y:saved.player.y||0};
+    const p={...this.player,x:saved.player.x,z:saved.player.z,y:this.world.support(saved.player.x,saved.player.z)??saved.player.y??0};
     if(!this.world.clear(p,p.x,p.z))return false;
     this.player=p;this.time=Number(saved.time)||0;this.savedYaw=Number(saved.yaw)||0;
     for(const position of saved.actors||[]){const actor=this.actors.get(position.id);if(actor&&Number.isFinite(position.x)&&Number.isFinite(position.z)){const candidate={...actor,...position};if(this.world.clear(candidate,candidate.x,candidate.z))Object.assign(actor,position);}}

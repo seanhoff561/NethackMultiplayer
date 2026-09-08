@@ -1,0 +1,61 @@
+import {chromium} from 'playwright';
+import {spawn} from 'node:child_process';
+import {mkdir,mkdtemp,cp,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {NativeSession} from '../lib/native-session.mjs';
+import {SpatialSimulation} from '../lib/spatial-simulation.mjs';
+process.chdir(fileURLToPath(new URL('..',import.meta.url)));
+await mkdir('test-results',{recursive:true});const runtime=await mkdtemp(path.resolve('test-results/traps-altars-browser-')),port=5190;
+await cp('engine/data',runtime,{recursive:true});
+const engine=new NativeSession({executable:process.env.NETHACK_ENGINE||path.resolve('engine/bin/nethack-engine-polished-v06.exe'),cwd:runtime,args:['-D','-p','Wizard','-r','human','-g','male','-a','neutral','-u','wizard']});
+const sim=new SpatialSimulation();engine.on('snapshot',s=>sim.accept(s));
+const until=async f=>{const end=Date.now()+5000;while(!f()){if(Date.now()>end)throw Error(JSON.stringify({prompt:engine.virtualPrompt?.request,player:engine.snapshot?.player,messages:engine.snapshot?.messages.slice(-8)}));await new Promise(r=>setTimeout(r,5));}};
+let wishing=null;const present=engine.present.bind(engine);engine.present=p=>{if(wishing&&p.kind==='text'){engine.write({kind:'text',value:wishing});wishing=null;}else present(p);};
+const act=async a=>{engine.act(a);await until(()=>engine.ready&&!engine.replay);};
+const wish=async value=>{wishing=value;await act({key:'#wizwish'});};
+const place=async tile=>{sim.player=sim.world.spawn(tile.x,tile.y);sim.project(engine);await act({key:'.',idle:true});};
+let server,browser,output='';
+try{
+  engine.start();await until(()=>engine.ready&&engine.snapshot);
+  for(const a of sim.actors.values()){a.x=225;a.z=60;}
+  const base=[...sim.world.tiles.values()].find(t=>t.type==='floor'&&Array.from({length:5},(_,i)=>[i,0]).concat([[0,1],[0,-1],[3,1],[3,-1]]).every(([dx,dz])=>sim.world.at((t.x+dx+.5)*3,(t.y+dz+.5)*3)?.type==='floor'));
+  assert.ok(base,'fixture needs a clear approach');const altar={x:base.x+3,y:base.y};
+  await place(altar);await wish('neutral altar');await act({key:'.',idle:true});
+  await wish('uncursed lizard corpse');const corpse=engine.snapshot.inventory.find(i=>i.name.includes('lizard corpse'));assert.ok(corpse);
+  await place(base);await wish('pit');await place({x:base.x+1,y:base.y});await place(base);
+  assert.ok(engine.snapshot.player.conditions.includes('Trapped'));
+  sim.release();await writeFile(path.join(runtime,'wizard.descent-spatial.json'),JSON.stringify(sim.serialize()));
+  engine.act({key:'Sy'});await until(()=>engine.closed);
+  await writeFile(path.join(runtime,'descent-session.json'),JSON.stringify({name:'wizard',role:'Wizard',race:'human',gender:'male',alignment:'neutral'}));
+  server=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:String(port),NETHACK_RUNTIME:runtime},windowsHide:true,stdio:'pipe'});server.stdout.on('data',b=>output+=b);server.stderr.on('data',b=>output+=b);
+  for(let i=0;i<50;i++){try{if((await fetch(`http://127.0.0.1:${port}/api/status`)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
+  const status=await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();assert.equal(status.version,'0.7.0');assert.ok(status.features.includes('trap-struggle'));
+  browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--enable-webgl','--ignore-gpu-blocklist']});
+  const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(()=>{localStorage.setItem('descent.settings',JSON.stringify({pulseTime:.25}));});
+  await page.goto(`http://127.0.0.1:${port}`);await page.locator('#continue-game').click();
+  await page.waitForFunction(()=>window.descent?.state.playing&&window.descent.state.motion);
+  assert.ok(await page.evaluate(()=>window.descent.state.player.conditions.includes('Trapped')));
+  if(await page.locator('.prompt-text').filter({hasText:'keep the save file'}).count())await page.keyboard.press('n');
+  await page.locator('#game').click();await page.keyboard.press('i');await page.locator('.inventory-panel').waitFor();await page.waitForTimeout(800);
+  assert.ok(await page.evaluate(()=>window.descent.state.player.conditions.includes('Trapped')),'inventory waiting does not escape');
+  await page.keyboard.press('Escape');await page.locator('#game').click();await page.waitForFunction(()=>!!document.pointerLockElement);
+  await page.keyboard.down('w');await page.waitForFunction(()=>!window.descent.state.player.conditions.includes('Trapped'),null,{timeout:15000});await page.keyboard.up('w');
+  assert.equal(await page.evaluate(()=>window.descent.state.motion.blocked),false);
+  // Walk to the altar using ordinary WASD along the clear room approach.
+  await page.evaluate(()=>{const p=window.descent.state.pose,desired=-Math.PI/2,delta=Math.atan2(Math.sin(desired-p.yaw),Math.cos(desired-p.yaw));document.dispatchEvent(new MouseEvent('mousemove',{movementX:-delta/.0022}));});
+  await page.keyboard.down('w');await page.waitForFunction(x=>window.descent.state.motion.player.x>=(x+.5)*3-.3,altar.x,{timeout:10000});await page.keyboard.up('w');await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(()=>window.descent.state.pose.elevation),.72);
+  await page.keyboard.press('i');await page.locator(`[data-item-key="${corpse.key}"]`).click();await page.locator('[data-inventory-action=d]').click();
+  await page.waitForFunction(id=>window.descent.renderer.snapshot.floorObjects.some(o=>o.id===id),corpse.id);
+  const drop=await page.evaluate(id=>{const r=window.descent.renderer,item=r.snapshot.floorObjects.find(o=>o.id===id),p=r.pickups.get(`object:${id}`).group.position;return {x:item.x,y:item.y,height:p.y};},corpse.id);
+  assert.deepEqual(drop,{...altar,height:.72});
+  await page.evaluate(()=>{const p=window.descent.state.pose;document.dispatchEvent(new MouseEvent('mousemove',{movementY:(p.pitch+.8)/.0022}));});await page.waitForTimeout(200);await page.screenshot({path:'test-results/altar-offering.png'});
+  await page.keyboard.press('Tab');await page.locator('#command-search').fill('offer');await page.keyboard.press('Enter');
+  await page.waitForTimeout(250);
+  const choice=page.locator('.menu-item').filter({hasText:'lizard corpse'});if(await choice.count())await choice.first().click();else if(await page.locator('.prompt-panel').count())await page.keyboard.press('y');
+  await page.waitForFunction(id=>!window.descent.renderer.snapshot.floorObjects.some(o=>o.id===id),corpse.id);
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({version:status.version,escapedByWASD:true,altarWalked:true,drop,sacrificeConsumed:true,errors},null,2));
+}catch(e){console.error(output);throw e;}finally{engine.stop();await browser?.close();server?.kill();}

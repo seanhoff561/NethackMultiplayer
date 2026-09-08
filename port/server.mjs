@@ -14,11 +14,11 @@ import {SpatialSimulation} from './lib/spatial-simulation.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const repository=path.dirname(root);
-const port=Number(process.env.PORT)||5177;
-const production=existsSync(path.join(root,'dist-polished-v06/index.html')) && !process.argv.includes('--dev');
-const siteRoot=production?path.join(root,'dist-polished-v06'):root;
+const port=Number(process.env.PORT)||5178;
+const production=existsSync(path.join(root,'dist-polished-v07/index.html')) && !process.argv.includes('--dev');
+const siteRoot=production?path.join(root,'dist-polished-v07'):root;
 const executable=process.env.NETHACK_ENGINE || path.join(root,'engine/bin/nethack-engine-polished-v06.exe');
-const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished-v06');
+const runtime=process.env.NETHACK_RUNTIME || path.join(root,'engine/runtime-polished-v07');
 const commands=readCommands(path.join(repository,'src/cmd.c'));
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.map':'application/json'};
 const metadataFile=path.join(runtime,'descent-session.json');
@@ -30,7 +30,7 @@ const server=http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Cache-Control','no-store');
-  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production,version:'0.6.0'});
+  if(url.pathname==='/api/status')return json(res,{ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),production,version:'0.7.0',features:['trap-struggle','walkable-altars']});
   if(url.pathname==='/api/commands')return json(res,commands);
   let file;
   if(url.pathname==='/vendor/three.js') file=path.join(root,'node_modules/three/build/three.module.js');
@@ -137,7 +137,7 @@ function start(character={},resume=false){
   broadcast({type:'starting',character:config});session.start();
 }
 wss.on('connection',ws=>{
-  ws.send(JSON.stringify({type:'hello',ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),commands}));
+  ws.send(JSON.stringify({type:'hello',version:'0.7.0',ready:existsSync(executable),running:!!session&&!session.closed,canContinue:canContinue(),commands}));
   if(session&&!session.closed&&lastSnapshot){ws.send(JSON.stringify(lastSnapshot));ws.send(JSON.stringify(spatial.packet()));}
   if(session&&!session.closed&&lastPrompt)ws.send(JSON.stringify({...lastPrompt,type:'prompt'}));
   ws.on('message',raw=>{

@@ -10,11 +10,17 @@ export function lootPositions(objects=[],world) {
       const angle=item.id*2.3999632297+(item.x*13+item.y*7)*.17;
       const radius=.66+(item.id%3)*.14;
       let x=(item.x+.5)*3+Math.cos(angle)*radius,z=(item.y+.5)*3+Math.sin(angle)*radius;
+      const altar=world?.at((item.x+.5)*3,(item.y+.5)*3)?.type==='altar';
       const stair=world?.stairs.find(s=>s.cellX===item.x&&s.cellZ===item.y);
       if(stair){const p=stairWorld(stair,-.72+(item.id%3-1)*.19,1.22-(Math.floor(item.id/3)%3)*.22);x=p.x;z=p.z;}
+      else if(altar){
+        const index=placed.length,ring=Math.floor(index/8),a=index*2.3999632297;
+        const r=index===0?0:Math.min(.55,.32+ring*.12);
+        x=(item.x+.5)*3+Math.cos(a)*r;z=(item.y+.5)*3+Math.sin(a)*r;
+      }
       else if(/boulder|statue/.test(item.name||'')){x=(item.x+.5)*3;z=(item.y+.5)*3;}
       else for(let attempt=0;attempt<24;attempt++){
-        if((!world||world.clear({radius:.12},x,z))&&placed.every(p=>Math.hypot(p.x-x,p.z-z)>.35))break;
+        if((!world||world.clear({radius:.12,y:world.support(x,z)||0},x,z))&&placed.every(p=>Math.hypot(p.x-x,p.z-z)>.35))break;
         x=(item.x+.5)*3+Math.cos(angle+attempt*.6)*(.3+(attempt%4)*.2);
         z=(item.y+.5)*3+Math.sin(angle+attempt*.6)*(.3+(attempt%4)*.2);
       }

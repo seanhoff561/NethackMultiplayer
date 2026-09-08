@@ -18,6 +18,12 @@ try {renderer=new DungeonRenderer(canvas);} catch(error) {
   document.querySelector('pre').textContent=error.message;throw error;
 }
 const audio=new DungeonAudio();
+// The v0.7 launcher carries preferences from the previous local origin once.
+const transferredSettings=new URLSearchParams(location.hash.slice(1)).get('descentSettings');
+if(transferredSettings){
+  try{const value=JSON.parse(transferredSettings);if(value&&typeof value==='object'&&!Array.isArray(value)&&!localStorage.getItem('descent.settings'))localStorage.setItem('descent.settings',JSON.stringify(value));}catch{}
+  history.replaceState(null,'',location.pathname+location.search);
+}
 const stored=(()=>{try{return JSON.parse(localStorage.getItem('descent.settings'))||{};}catch{return {};}})();
 const settings={...AUDIO_DEFAULTS,sensitivity:1,pulseTime:0.8,spellBindings:{},...stored};
 let spellSettingsRequest=null,spellSettingsTimer=0,lastItemIntent=null;
@@ -137,7 +143,7 @@ function connect(){
   socket.addEventListener('message',event=>{
     let data;try{data=JSON.parse(event.data);}catch{return;}
     if(data.type==='hello'){
-      commands=data.commands||[];ui.setEngineStatus(data.ready?'The dungeon awaits.':'Native engine is building…',data.ready);
+      commands=data.commands||[];ui.setEngineStatus(data.ready?`The dungeon awaits.${data.version?' · v'+data.version:''}`:'Native engine is building…',data.ready);
       document.querySelector('#continue-game').hidden=!data.canContinue&&!data.running;
       if(data.running){playing=true;ui.setMode('game');}
       return;

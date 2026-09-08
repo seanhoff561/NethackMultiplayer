@@ -50,3 +50,21 @@ test('legacy doorway anchors never pull physical bodies to a cell center',()=>{
   sim.accept({levelId:'0:1',spatialSerial:sim.sequence,tiles,player:{x:2,y:3,hp:20},actors:[]});
   assert.equal(sim.player.x,before.x);assert.equal(writes.find(w=>w.kind==='position').value[3],before.x);
 });
+
+
+test('altar steps climb and descend from every side, support drops and keep native altar anchors',async()=>{
+  const {lootPositions}=await import('../src/loot.js');
+  const tiles=room();tiles.find(t=>t.x===3&&t.y===3).type='altar';const w=new CollisionWorld(tiles);
+  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
+    const p={id:'player',x:10.5+dx*1.6,z:10.5+dz*1.6,y:0,radius:.28};
+    w.move(p,-dx*1.6,-dz*1.6);assert.ok(Math.abs(p.y-.72)<1e-8);assert.ok(Math.hypot(p.x-10.5,p.z-10.5)<1e-8);
+    assert.deepEqual([Math.floor(p.x/3),Math.floor(p.z/3)],[3,3]);
+    w.move(p,dx*1.6,dz*1.6);assert.equal(p.y,0);
+  }
+  assert.equal(w.spawn(3,3).y,.72);
+  const objects=lootPositions([{id:1,x:3,y:3,name:'lizard corpse'},{id:2,x:3,y:3,name:'dagger'},{id:3,x:3,y:3,name:'gold'}],w);
+  for(const item of objects){assert.equal(item.worldY,.72);assert.equal(Math.floor(item.worldX/3),3);assert.equal(Math.floor(item.worldZ/3),3);}
+  assert.ok(Math.hypot(objects[1].worldX-objects[0].worldX,objects[1].worldZ-objects[0].worldZ)>.25);
+  const sim=new SpatialSimulation();sim.accept({levelId:'0:1',tiles,player:{x:3,y:3,hp:10},actors:[]});
+  assert.ok(sim.restore({levelId:'0:1',player:{x:10.5,z:10.5,y:0}}));assert.equal(sim.player.y,.72);
+});
