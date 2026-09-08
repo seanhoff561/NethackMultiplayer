@@ -89,3 +89,13 @@ body.floor-transition::after{opacity:1}
 @media(max-width:700px){#ui .player-status{left:14px;top:14px;width:250px;padding:10px}#ui .compass{display:none}#ui .aiming-layer{padding:12px}#ui .aiming-layer .game-panel{width:48vw;max-height:80vh}}
 
 #ui .player-status .vital-label{display:block;width:auto;grid-column:1}#ui .player-status .bar{grid-column:2}#ui .player-status .vital-value{grid-column:3}
+
+/* Peripheral awareness leaves the center of the view and chronicle clear. */
+#ui .status-heading{flex-wrap:wrap;row-gap:5px}#ui #level-xp{white-space:nowrap;font-variant-numeric:tabular-nums}
+#ui .awareness{position:absolute;right:25px;top:24px;width:220px;max-width:30vw;padding:13px 15px;border-right:2px solid #8587aa55;background:linear-gradient(250deg,#111622c9,#11162200);color:#c6c6d8;text-align:right;text-shadow:0 1px 4px #000;pointer-events:none}
+#ui .awareness-heading{display:block;font:9px system-ui;letter-spacing:.09em;text-transform:uppercase;color:#929cb3;margin-bottom:7px}
+#ui #focus-name{display:block;font:16px/1.4 Georgia;font-weight:400;overflow-wrap:anywhere;text-transform:capitalize;color:#e0dfe9}
+#ui #focus-readout:not([hidden])+#enemies-readout{margin-top:18px;padding-top:12px;border-top:1px solid #8587aa28}
+#ui #visible-enemies{list-style:none;margin:0;padding:0;max-height:30vh;overflow:hidden;font:12px/1.65 Georgia;overflow-wrap:anywhere;columns:1}
+#ui #visible-enemies li{break-inside:avoid}#ui #visible-enemies span{font:10px system-ui;color:#a3aac0}
+@media(max-width:700px){#ui .awareness{top:154px;right:14px;width:180px;max-width:42vw;padding:10px}#ui #focus-name{font-size:14px}}

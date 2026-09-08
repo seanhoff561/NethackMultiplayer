@@ -1,4 +1,5 @@
 // NetHack: Descent, 2026-09-07. Distributed under dat/license.
+import {experienceLabel} from './awareness.js';
 
 const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const capital = value => String(value || '').replace(/^./, c => c.toUpperCase());
@@ -131,13 +132,17 @@ export class GameUI {
       </section>
       <section class="game-hud" aria-label="Game status" hidden>
         <div class="hud-top-left player-status" aria-label="Character status">
-          <div class="status-heading"><b id="player-name">Adventurer</b><span id="level-xp">Lv 1 · 0 XP</span></div>
+          <div class="status-heading"><b id="player-name">Adventurer</b><span id="level-xp">Lv 1 · 0 / 20 XP</span></div>
           <div class="vital-bars"><div class="vital-row"><span class="vital-label">HEALTH</span><div class="bar hp-bar"><div id="hp-fill"></div></div><span class="vital-value" id="hp-value">—</span></div><div class="vital-row"><span class="vital-label">POWER</span><div class="bar power-bar"><div id="power-fill"></div></div><span class="vital-value" id="power-value">—</span></div></div>
           <div class="status-details"><span id="hunger-value">Ready</span><span id="weight-value">Unburdened</span><span><b id="gold-value">0</b> gold</span></div><div id="hud-conditions"></div>
         </div>
         <div class="compass" aria-label="Facing direction"><span class="compass-side" id="compass-left">W</span><i></i><span class="compass-center" id="compass-heading">N</span><i></i><span class="compass-side" id="compass-right">E</span><b>▼</b></div>
         <div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
         <div class="message-log" id="message-log" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <aside id="awareness" class="awareness" aria-label="Surroundings" hidden>
+          <div id="focus-readout" hidden><span class="awareness-heading" id="focus-kind">Looking at</span><b id="focus-name"></b></div>
+          <div id="enemies-readout" hidden><span class="awareness-heading" id="enemies-heading">Enemies in sight</span><ul id="visible-enemies"></ul></div>
+        </aside>
         <button class="mouse-capture" id="mouse-capture" type="button" hidden>Click to look around <span>TAB commands · ESC menu</span></button>
       </section>
       <div class="panel-layer" id="panel-layer" hidden></div>
@@ -245,7 +250,8 @@ export class GameUI {
     set('#armor-value', p.ac);
     set('#gold-value', Number(p.gold || 0).toLocaleString());
     const hunger = typeof p.hunger==='string'&&p.hunger?p.hunger:'Ready';
-    set('#level-xp',`Lv ${p.level||1} · ${p.experience||0} XP`);
+    set('#level-xp',`Lv ${p.level||1} · ${experienceLabel(p.level||1,p.experience||0)}`);
+    this.$('#level-xp').title=p.level>=30?'Maximum experience level':'Current total XP / total XP required for the next level';
     set('#weight-value',['Unburdened','Burdened','Stressed','Strained','Overtaxed','Overloaded'][p.encumbrance||0]);
     set('#hunger-value', capital(hunger));
     set('#hud-conditions',p.conditions?.filter(c=>! /Hungry|Weak|Faint|Starv|Satiated|Burdened|Stressed|Strained|Overtaxed|Overloaded/.test(c)).join(' · ')||'');
@@ -281,6 +287,21 @@ export class GameUI {
   }
 
   setInteraction() {}
+  setAwareness({target=null,enemies=[]}={}) {
+    this.$('#awareness').hidden=!target&&!enemies.length;
+    this.$('#focus-readout').hidden=!target;
+    this.$('#focus-name').textContent=target?.name||'';
+    this.$('#focus-kind').textContent=target?.kind||'Looking at';
+    this.$('#enemies-readout').hidden=!enemies.length;
+    this.$('#enemies-heading').textContent=`Enemies in sight · ${enemies.length}`;
+    const grouped=new Map();
+    for(const enemy of enemies)grouped.set(enemy.name,(grouped.get(enemy.name)||0)+1);
+    const signature=JSON.stringify([...grouped]);
+    if(signature!==this.enemySignature){
+      this.enemySignature=signature;
+      this.$('#visible-enemies').innerHTML=[...grouped].map(([name,count])=>`<li>${esc(capital(name))}${count>1?` <span>×${count}</span>`:''}</li>`).join('');
+    }
+  }
   setBusy(active){this.$('#time-skip').classList.toggle('active',!!active);this.root.classList.toggle('time-passing',!!active);}
   setPointerLocked(){this.$('#mouse-capture').hidden=true;}
 

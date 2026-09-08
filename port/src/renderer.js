@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {CollisionWorld,mergeSurfaces,FLOOR_HEIGHT} from './spatial.js';
 import {lootPositions} from './loot.js';
+import {readSight} from './awareness.js';
 import {swingPose} from './presentation.js';
 import {voxelVolume,dressingPlan,branchStyle} from './voxel.js';
 
@@ -587,7 +588,7 @@ export class DungeonRenderer {
           this.monsters.set(key, entity);
         }
         if(!entity.spatial)entity.target.set((tile.x + 0.5) * CELL, 0, (tile.y + 0.5) * CELL);
-        entity.group.visible=data.visible!==false;
+        entity.data=data;entity.group.visible=data.visible!==false;
       }
       if (tile.object && !this.snapshot.floorObjects) {
         const data = typeof tile.object === 'string' ? { name: tile.object } : tile.object;
@@ -619,8 +620,7 @@ export class DungeonRenderer {
 
   _disposeActor(entity){for(const m of entity.flashMaterials||[])m.dispose();}
 
-  hitActor(id,dead=false){
-    const entity=this.monsters.get(`id:${id}`);if(!entity)return false;
+  _actorMaterials(entity){
     if(!entity.flashMaterials){
       const clones=new Map();
       entity.group.traverse(mesh=>{
@@ -631,6 +631,17 @@ export class DungeonRenderer {
       });
       entity.flashMaterials=[...clones.values()];
     }
+  }
+
+  sight(){return readSight(this);}
+  highlightActor(key=null){
+    this.focusedActor=key;
+    const entity=this.monsters.get(key);if(entity)this._actorMaterials(entity);
+  }
+
+  hitActor(id,dead=false){
+    const entity=this.monsters.get(`id:${id}`);if(!entity)return false;
+    this._actorMaterials(entity);
     entity.hitAt=this.time;if(dead)entity.deathAt=this.time||.0001;
     const v=entity.group.position.clone().add(new THREE.Vector3(0,.7,0)).project(this.camera);
     return entity.group.visible&&Math.abs(v.x)<1&&Math.abs(v.y)<1&&v.z>0&&v.z<1&&entity.group.position.distanceTo(this.camera.position)<15;
@@ -1321,7 +1332,8 @@ export class DungeonRenderer {
     for(const torch of this.torches){torch.flame.scale.set(1+Math.sin(this.time*5+torch.phase)*.06,1+Math.sin(this.time*3+torch.phase)*.09,1);torch.flame.rotation.z=Math.sin(this.time*2+torch.phase)*.04;}
     for(const [key,entity] of this.monsters){
       const age=this.time-(entity.hitAt??-10),flash=Math.max(0,1-age/.3);
-      for(const m of entity.flashMaterials||[]){m.color.copy(m.userData.baseColor).lerp(new THREE.Color(0xff2620),flash*.8);m.emissive.copy(m.userData.baseEmissive).lerp(new THREE.Color(0xd51b0a),flash);m.emissiveIntensity=m.userData.baseIntensity*(1-flash)+flash*.95;}
+      const focused=key===this.focusedActor;
+      for(const m of entity.flashMaterials||[]){m.color.copy(m.userData.baseColor).lerp(new THREE.Color(0xff2620),flash*.8);m.emissive.copy(focused?new THREE.Color(0x9daec8):m.userData.baseEmissive).lerp(new THREE.Color(0xd51b0a),flash);m.emissiveIntensity=(focused?Math.max(.1,m.userData.baseIntensity):m.userData.baseIntensity)*(1-flash)+flash*.95;}
       if(entity.deathAt){const t=(this.time-entity.deathAt)/.38;entity.group.scale.y=Math.max(.08,1-t*.9);if(t>=1){this.creatures.remove(entity.group);this._disposeActor(entity);this.monsters.delete(key);}continue;}
 
       const g=entity.group,travel=g.position.distanceTo(entity.target);g.position.lerp(entity.target,1-Math.exp(-dt*18));

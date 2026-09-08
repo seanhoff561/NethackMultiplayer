@@ -281,7 +281,12 @@ function frame(time){
     const p=world.player;
     const loot=targetLoot(world?.floorObjects,body,yaw,collision);
     const canInteract=!renderer.mapHeld&&!ui.hasPanel&&!p.busy;
-    renderer.highlightPickup(canInteract?loot?.id??null:null,canInteract&&!loot?nearbyDoor():null);
+    const sight=canInteract?renderer.sight():{target:null,enemies:[]};
+    const door=canInteract&&!sight.target&&!loot?nearbyDoor():null;
+    renderer.highlightActor(sight.target?.key);
+    renderer.highlightPickup(canInteract&&!sight.target?loot?.id??null:null,door);
+    const target=sight.target||(canInteract&&loot?{name:loot.name,kind:'On the ground'}:door?{name:door.type==='door_open'?'Open door':'Closed door',kind:'Within reach'}:null);
+    ui.setAwareness({...sight,target});
     ui.update({...world,elapsed:motion?.time,player:{...world.player,x:pose.x-.5,y:pose.y-.5},yaw,heading:-yaw,pointerLocked:document.pointerLockElement===canvas});movementTime=time;
   }
   requestAnimationFrame(frame);
