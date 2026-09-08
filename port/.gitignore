@@ -31,3 +31,8 @@ dist-polished-v07/
 engine/runtime-polished-v07/
 .v07-server.log
 .v07-server-errors.log
+
+dist-polished-v08/
+engine/runtime-polished-v08/
+.v08-server.log
+.v08-server-errors.log

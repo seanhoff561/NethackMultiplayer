@@ -13,6 +13,7 @@ export function encodeInput(input) {
   if(input.kind==='position'||input.kind==='actor')return `${input.kind==='position'?'v':'n'} ${(input.value||[]).map(Number).filter(Number.isFinite).join(' ')}\n`;
   if(input.kind==='melee')return `a ${Number(input.value)||0}\n`;
   if(input.kind==='pickup')return `g ${Number(input.value)||0}\n`;
+  if(input.kind==='campaign-floor')return `c ${input.value.map(Number).join(' ')}\n`;
   return `k ${typeof input.value==='number'?input.value:String(input.value||'\x1b').charCodeAt(0)}\n`;
 }
 export function cancelInput(request) {

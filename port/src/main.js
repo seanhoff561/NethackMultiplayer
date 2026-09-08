@@ -6,6 +6,10 @@ import {bindSpellChoices} from './spell-bindings.js';
 import { GameUI } from './ui.js';
 import {targetLoot} from './loot.js';
 import {GameInput,COMMAND_KEYS} from './input.js';
+import {PartyUI} from './party-ui.js';
+import {PartyModels} from './player-models.js';
+import {PARTY_COMMANDS} from './party-rules.js';
+let party,networkMode='solo',pendingSolo=null;
 let input,actionSequence=0,suppressUnlockMenu=false,defending=false,resumeOnEscapeUp=false;
 const pendingActions=new Map();
 import {CollisionWorld,integratePlayer,startJump,advanceJump,CELL} from './spatial.js';
@@ -32,7 +36,7 @@ let socket,world=null,playing=false,pendingPrompt=null,commands=[],connected=fal
 let yaw=0,pitch=0,lastAction=0,lastStep=0,lastTime=performance.now(),movementTime=0;
 let pose={x:4.5,y:7.5,yaw:0,pitch:0,crouch:false,moving:false,running:false};
 const ui=new GameUI({
-  onStart:character=>{audio.start();send({type:'start',character});ui.setEngineStatus('Entering the Dungeons of Doom…',false);},
+  onStart:character=>{audio.start();if(party.start(character))return;if(networkMode!=='solo'){networkMode='solo';pendingSolo=character;connect();}else send({type:'start',character});ui.setEngineStatus('Entering the Dungeons of Doom…',false);},
   onContinue:()=>{audio.start();send({type:'continue'});},
   onCommand:(key,itemKey,itemId)=>command(typeof key==='string'?key:key.key,itemKey,undefined,itemId),
   onKey:key=>answer({kind:'key',value:key}),
@@ -56,13 +60,15 @@ const ui=new GameUI({
   onNewRun:()=>{unlock();send({type:"new-run"});},
 });
 audio.setSettings(settings);
+const partyModels=new PartyModels(renderer.scene);
+party=new PartyUI({send,connect:()=>{networkMode='party';connect();},onNotice:text=>{ui.message(text);ui.setEngineStatus(text,true);},onMenu:()=>{unlock();ui.closePanels(false);},onRevive:()=>action({key:'#revive'}),onLeave:()=>{location.href=location.pathname;}});
 
 function send(message){if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message));}
 function setDefending(value){if(defending!==!!value)audio.guard(!!value,!!world?.player.shield);defending=!!value;renderer.guard(defending);send({type:"defend",active:defending});}
 function unlock(){setDefending(false);if(document.pointerLockElement){suppressUnlockMenu=true;document.exitPointerLock();}input?.clear();send({type:'release'});}
 let captureRetry=0;
 function capture(retry=false){
-  if(!playing||(ui.hasPanel&&!ui.panel?.aiming))return;
+  if(!playing||party&&!party.panel.hidden||(ui.hasPanel&&!ui.panel?.aiming))return;
   clearTimeout(captureRetry);canvas.focus({preventScroll:true});
   canvas.requestPointerLock?.().catch?.(()=>{
     ui.setPointerLocked(false);
@@ -117,7 +123,7 @@ function interact(){
   else command(',');
 }
 function attack(){
-  if(defending||renderer.mapHeld||world?.player.busy||!playing||ui.hasPanel||!connected||[...pendingActions.values()].some(a=>a.melee))return;
+  if(defending||renderer.mapHeld||world?.player.busy||world?.player.downed||!playing||ui.hasPanel||!party.panel.hidden||!connected||[...pendingActions.values()].some(a=>a.melee))return;
   action({key:'.',melee:true,yaw});
 }
 function handleAction(name){
@@ -132,17 +138,24 @@ function handleAction(name){
   else if(name==='jump'){if(!motion?.blocked&&!motion?.transition&&startJump(body)){pendingJumpUntil=performance.now()+500;audio.jump();send({type:'jump'});}}
   else if(COMMAND_KEYS[name])command(COMMAND_KEYS[name]);
 }
-input=new GameInput({context:()=>ui.panel?'menu':world?.player.busy?'busy':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
+input=new GameInput({context:()=>party&&!party.panel.hidden?'busy':ui.panel?'menu':world?.player.busy?'busy':playing?'game':'title',menu:e=>ui.handleKey(e),onAction:handleAction,onRelease:()=>send({type:'release'})});
 canvas.tabIndex=-1;
 
 
 function connect(){
-  socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
+  if(socket){socket.onclose=null;socket.close();}
+  const current=socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}${networkMode==='party'?'/party':''}`);
   socket.addEventListener('open',()=>{connected=true;send({type:'settings',...settings});});
-  socket.addEventListener('close',()=>{connected=false;pendingActions.clear();input.reset();ui.message('Connection lost. Reconnecting to your expedition…');setTimeout(connect,1500);});
+  socket.addEventListener('close',event=>{if(socket!==current)return;connected=false;pendingActions.clear();input.reset();party.disconnected();if(event.code===4001){playing=false;partyModels.clear();ui.setMode('title');ui.setEngineStatus('Your character was rejoined in another tab. Choose a new character here or rejoin to move it back.',true);return;}ui.message('Connection lost. Reconnecting to your expedition…');setTimeout(()=>{if(socket===current)connect();},1500);});
   socket.addEventListener('message',event=>{
     let data;try{data=JSON.parse(event.data);}catch{return;}
+    if(socket!==current)return;
+    if(data.type==='party-result'){playing=false;unlock();ui.closePanels(false);renderer.holdMap(false);}
+    if(data.type==='party-roster')commands=PARTY_COMMANDS;
+    if(party.handle(data))return;
     if(data.type==='hello'){
+      if(data.multiplayer){commands=PARTY_COMMANDS;party.ready();ui.setEngineStatus('Joining your expedition…',true);return;}
+      if(pendingSolo){send({type:'start',character:pendingSolo});pendingSolo=null;}
       commands=data.commands||[];ui.setEngineStatus(data.ready?`The dungeon awaits.${data.version?' · v'+data.version:''}`:'Native engine is building…',data.ready);
       document.querySelector('#continue-game').hidden=!data.canContinue&&!data.running;
       if(data.running){playing=true;ui.setMode('game');}
@@ -168,7 +181,7 @@ function connect(){
     if(data.type==='motion'){
       if(!data.player||data.levelId!==lastLevel)return;
       if(!motion&&Number.isFinite(data.spawnYaw))yaw=data.spawnYaw;
-      motion=data;const p=data.player;
+      motion=data;partyModels.accept(data,party.id);const p=data.player;
       // A grounded packet already in flight before Space must not cancel the
       // local takeoff. Accept the first airborne acknowledgement, or a block.
       if(p.jumpOffset>0||p.jumpVelocity>0||data.blocked||data.transition)pendingJumpUntil=0;
@@ -181,6 +194,7 @@ function connect(){
     if(data.type==='snapshot'){
       if(!data.player || !Number.isFinite(data.player.x))return;
       const before=world;world=normalize(data);const p=world.player;ui.setBusy(!!p.busy&&p.hp>0);
+      if(data.multiplayer)commands=PARTY_COMMANDS;
       if(spellSettingsRequest?.started&&(world.messages||[]).slice(-2).some(m=>/don't know any spells right now/i.test(typeof m==='string'?m:m.text))){spellSettingsRequest=null;clearTimeout(spellSettingsTimer);ui.setSpellChoices([]);}
       if(before){
         if(p.level>before.player.level)audio.levelUp();
@@ -216,8 +230,8 @@ function connect(){
 
       if(lastPower!==null&&p.power<lastPower){renderer.attack('spell');audio.spell();}lastPower=p.power;
       lastHp=p.hp;renderer.setWorld(world);ui.update({...world,heading:-yaw,yaw});
-      if(!playing&&p.hp>0){playing=true;ui.setMode('game');ui.message('You descend into the Dungeons of Doom. Click the view to look around.');send({type:'settings',...settings});}
-      if(p.hp<=0&&playing){audio.playerDeath();playing=false;unlock();ui.showDeath(world.messages?.slice(-4).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');}
+      if(!playing&&p.hp>0&&!party.result){playing=true;ui.setMode('game');ui.message('You descend into the Dungeons of Doom. Click the view to look around.');send({type:'settings',...settings});}
+      if(p.hp<=0&&playing&&!p.downed){audio.playerDeath();playing=false;unlock();ui.showDeath(world.messages?.slice(-4).map(m=>typeof m==='string'?m:m.text).join('\n')||'Your expedition has ended.');}
       return;
     }
     if(data.type==='prompt'){
@@ -311,10 +325,10 @@ let sendAt=0;
 function frame(time){
   const dt=Math.min((time-lastTime)/1000,.06);lastTime=time;
   const running=input.is('run'),crouch=input.is('crouch');
-  if(playing&&!ui.hasPanel&&!world?.player.busy){
+  if(connected&&playing&&!ui.hasPanel&&party.panel.hidden&&!world?.player.busy){
     if(input.is('turnLeft'))yaw+=dt*1.9;if(input.is('turnRight'))yaw-=dt*1.9;
     const movement={...input.motion(yaw),defend:defending};
-    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale??1),motion?.actors||[]);
+    if(body&&!motion?.blocked&&!motion?.transition)integratePlayer(collision,body,movement,dt*(body.speedScale??1),[...(motion?.actors||[]),...(motion?.players||[]).filter(p=>p.id!==party.id&&p.connected&&p.levelId===motion.levelId)]);
     if(time-sendAt>33){send({type:'input',...movement});sendAt=time;}
   }
   const previousX=pose.x,previousY=pose.y;
@@ -324,6 +338,7 @@ function frame(time){
   if(playing)audio.movement(airborne,collision.at(body?.x,body?.z)?.type);
   if(playing&&!airborne&&travelled>.001&&time-lastStep>(running?280:460)){audio.step(running,collision.at(body.x,body.z)?.type,crouch);lastStep=time;}
   pose={...pose,yaw:playing?yaw:Math.sin(time*.00007)*.14,pitch:playing?pitch:-.035,crouch,moving:playing&&travelled>.001,running};
+  partyModels.update(dt);party.update(motion,body,collision);
   renderer.setPose(pose);renderer.update(dt);audio.ambient(dt,{playing,pose,torches:renderer.torches,area:soundArea(world),entities:renderer.monsters,collision,water:world?.tiles.some(t=>t.type==='fountain'&&Math.hypot(t.x-pose.x,t.y-pose.y)<4)});
   if(world&&time-movementTime>150){
     const p=world.player;
@@ -342,4 +357,4 @@ function frame(time){
 requestAnimationFrame(frame);
 
 // Read-only diagnostics used by the end-to-end smoke test.
-window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose},motion,collision:collision.stairs};},get renderer(){return renderer;},get audio(){return audio;}};
+window.descent={get state(){return {playing,connected,player:world?.player,tiles:world?.tiles?.length,prompt:pendingPrompt?.kind,pose:{...pose},motion,collision:collision.stairs,party:party.id?{id:party.id,code:party.partyCode,models:partyModels.models.size,voiceEnabled:party.voice.enabled,voicePeers:[...party.voice.peers.values()].map(p=>p.pc.connectionState)}:null};},get renderer(){return renderer;},get audio(){return audio;},get voice(){return party.voice;}};

@@ -259,7 +259,7 @@ export class GameUI {
       this.hungerStage=hungerStage;clearTimeout(this.hungerTimer);const alert=this.$('#hunger-alert');alert.hidden=!hungerStage;
       if(hungerStage){this.$('#hunger-alert-text').textContent=/faint|starv/.test(hungerStage)?'You are starving':'Weak from hunger';this.hungerTimer=setTimeout(()=>alert.hidden=true,7500);}
     }
-    set('#level-xp',`Lv ${p.level||1} · ${experienceLabel(p.level||1,p.experience||0)}`);
+    set('#level-xp',`Lv ${p.level||1} · ${snapshot.multiplayer?`${p.experience||0} / ${20*(p.level||1)**2} XP`:experienceLabel(p.level||1,p.experience||0)}`);
     this.$('#level-xp').title=p.level>=30?'Maximum experience level':'Current total XP / total XP required for the next level';
     set('#weight-value',['Unburdened','Burdened','Stressed','Strained','Overtaxed','Overloaded'][p.encumbrance||0]);
     set('#hunger-value', capital(hunger));

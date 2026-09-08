@@ -138,6 +138,37 @@ static const char *terrain(int x, int y) {
     if (typ == AIR || typ == CLOUD) return "air";
     return "floor";
 }
+static int party_generator(void) { return wizard && getenv("NH_COOP_GENERATOR") != NULL; }
+static const char *party_item(struct obj *obj) {
+    if (obj->otyp == AMULET_OF_YENDOR) return "amulet";
+    if (obj->otyp == BELL_OF_OPENING) return "bell";
+    if (obj->otyp == CANDELABRUM_OF_INVOCATION) return "candelabrum";
+    if (obj->otyp == SPE_BOOK_OF_THE_DEAD) return "book";
+    if (obj->oartifact && obj->oartifact == gu.urole.questarti) return "questArtifact";
+    return "";
+}
+static void party_object(struct obj *obj) {
+    printf("{\"id\":%u,\"quantity\":%ld,\"name\":",obj->o_id,obj->quan);
+    json_string(doname(obj));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);
+    fputs(",\"campaignItem\":",stdout);json_string(party_item(obj));object_visual(obj);putchar('}');
+}
+static void party_campaign(void) {
+    stairway *st; struct trap *trap; int first=1;
+    fputs(",\"campaign\":{\"questLeader\":",stdout);json_string(mons[gu.urole.ldrnum].pmnames[NEUTRAL]);
+    fputs(",\"questNemesis\":",stdout);json_string(mons[gu.urole.neminum].pmnames[NEUTRAL]);
+    fputs(",\"questArtifact\":",stdout);json_string(artiname(gu.urole.questarti));
+    printf(",\"questStart\":\"%d:%d\",\"questGoal\":\"%d:%d\",\"sanctum\":\"%d:%d\",\"earth\":\"%d:%d\",\"astral\":\"%d:%d\",\"invocation\":%s,\"invocationX\":%d,\"invocationY\":%d},\"connections\":[",
+           qstart_level.dnum,qstart_level.dlevel,nemesis_level.dnum,nemesis_level.dlevel,sanctum_level.dnum,sanctum_level.dlevel,earth_level.dnum,earth_level.dlevel,astral_level.dnum,astral_level.dlevel,Invocation_lev(&u.uz)?"true":"false",svi.inv_pos.x,svi.inv_pos.y);
+    for(st=gs.stairs;st;st=st->next){
+        if(!first)putchar(',');first=0;
+        printf("{\"x\":%d,\"y\":%d,\"up\":%s,\"kind\":\"stairs\",\"to\":\"%d:%d\"}",st->sx,st->sy,st->up?"true":"false",st->tolev.dnum,st->tolev.dlevel);
+    }
+    for(trap=gf.ftrap;trap;trap=trap->ntrap)if(trap->ttyp==MAGIC_PORTAL){
+        if(!first)putchar(',');first=0;
+        printf("{\"x\":%d,\"y\":%d,\"up\":false,\"kind\":\"portal\",\"to\":\"%d:%d\"}",trap->tx,trap->ty,trap->dst.dnum,trap->dst.dlevel);
+    }
+    fputs("]",stdout);
+}
 static void snapshot(void) {
     int x, y, first = 1, i, burden = near_capacity();
     const double burden_speed[] = {1.0,.75,.5,.25,.125,0.0};
@@ -187,6 +218,7 @@ static void snapshot(void) {
             printf(",\"class\":%d,\"symbol\":", objects[oi].oc_class); json_char(def_oc_syms[(int)objects[oi].oc_class].sym); putchar('}');
         }
         if (glyph_is_trap(g)) { fputs(",\"trap\":true", stdout); }
+        if(party_generator()&&levl[x][y].typ==ALTAR)printf(",\"altarAlignment\":%d",Amask2align(levl[x][y].altarmask & AM_MASK));
         putchar('}');
     }
     fputs("],\"actors\":[", stdout); first = 1;
@@ -202,6 +234,12 @@ static void snapshot(void) {
             { SpatialActor *p=actor_position(mon);printf(",\"goalX\":%d,\"goalZ\":%d",p->gx,p->gz); }
             printf(",\"hp\":%d,\"maxHp\":%d,\"level\":%d,\"boss\":%s",mon->mhp,mon->mhpmax,mon->m_lev,((mon->data->geno&G_UNIQ)&&!mon->mpeaceful)?"true":"false");
             fputs(",\"weapon\":",stdout);json_string(MON_WEP(mon)?distant_name(MON_WEP(mon),doname):"");
+            if(party_generator()){
+                struct obj *loot;int comma=0;
+                fputs(",\"loot\":[",stdout);
+                for(loot=mon->minvent;loot;loot=loot->nobj){if(comma++)putchar(',');party_object(loot);}
+                fputs("]",stdout);
+            }
             printf(",\"color\":%d,\"size\":%d,\"speed\":%d,\"tame\":%s,\"peaceful\":%s,\"canMove\":%s,\"sleeping\":%s,\"fleeing\":%s,\"stationary\":%s,\"visible\":%s}",mon->data->mcolor,mon->data->msize,(mon->data->mmove*(mon->mspeed==MFAST?4:mon->mspeed==MSLOW?2:3))/3,mon->mtame?"true":"false",mon->mpeaceful?"true":"false",mon->mcanmove&&!mon->mtrapped&&!mon->meating?"true":"false",mon->msleeping?"true":"false",mon->mflee?"true":"false",mon->isshk||mon->ispriest||mon->isgd?"true":"false",!mon->mundetected&&mon->m_ap_type==M_AP_NOTHING&&(!mon->minvis||See_invisible)?"true":"false");
         }
     }
@@ -210,7 +248,7 @@ static void snapshot(void) {
         if(obj->where!=OBJ_FLOOR)continue;
         if(!first)putchar(',');first=0;
         printf("{\"id\":%u,\"x\":%d,\"y\":%d,\"quantity\":%ld,\"class\":%d,\"name\":",obj->o_id,obj->ox,obj->oy,obj->quan,obj->oclass);
-        json_string(distant_name(obj,doname));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);object_visual(obj);putchar('}');
+        json_string(distant_name(obj,doname));fputs(",\"symbol\":",stdout);json_char(def_oc_syms[(int)obj->oclass].sym);object_visual(obj);if(party_generator()){fputs(",\"campaignItem\":",stdout);json_string(party_item(obj));}putchar('}');
     }
     fputs("],\"inventory\":[", stdout); first = 1;
     for (obj = gi.invent; obj; obj = obj->nobj) {
@@ -222,12 +260,24 @@ static void snapshot(void) {
     }
     fputs("],\"messages\":[", stdout);
     for (i = 0; i < message_count; i++) { if (i) putchar(','); printf("{\"id\":%lu,\"text\":", message_ids[i]); json_string(message_log[i]); putchar('}'); }
-    fputs("]}\n", stdout); fflush(stdout); snapshot_guard = 0;
+    fputs("]",stdout);if(party_generator())party_campaign();fputs("}\n", stdout); fflush(stdout); snapshot_guard = 0;
 }
 static char *read_wire(void) {
     for (;;) {
         if (!fgets(wire_line, sizeof(wire_line), stdin)) exit(0);
         wire_line[strcspn(wire_line, "\r\n")] = 0;
+        if(wire_line[0]=='c'&&wire_line[1]==' '&&party_generator()){
+            int dnum,dlevel;d_level destination;
+            if(sscanf(wire_line+2,"%d %d",&dnum,&dlevel)==2&&dnum>=0&&dnum<svn.n_dgns&&dlevel>=1&&dlevel<=svd.dungeons[dnum].num_dunlevs){
+                destination.dnum=dnum;destination.dlevel=dlevel;
+                /* Only the isolated content generator bypasses hero gates.
+                   The authoritative party campaign enforces them for players. */
+                u.uhave.amulet=1;u.uevent.invoked=1;svq.quest_status.got_quest=1;
+                goto_level(&destination,FALSE,FALSE,FALSE);snapshot();
+                printf("{\"type\":\"campaign-floor-ready\",\"levelId\":\"%d:%d\"}\n",u.uz.dnum,u.uz.dlevel);fflush(stdout);
+            }
+            continue;
+        }
         if (wire_line[0] == 'p' && wire_line[1] == ' ') {
             turn_ms = atoi(wire_line + 2);
             if (turn_ms < 250) turn_ms = 250; if (turn_ms > 3000) turn_ms = 3000;

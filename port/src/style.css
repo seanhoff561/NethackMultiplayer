@@ -119,3 +119,34 @@ body.floor-transition::after{opacity:1}
 #ui .hunger-alert{position:absolute;left:50%;top:calc(50% + 60px);transform:translateX(-50%);padding:10px 19px;max-width:85vw;background:linear-gradient(100deg,#191a2bd9,#121724bd);border:1px solid #92819f55;text-align:center;pointer-events:none;animation:hunger-arrive .25s ease-out}
 #ui .hunger-alert b{display:block;color:#dfb6a0;font:16px Georgia;font-weight:400}#ui .hunger-alert span{display:block;margin-top:7px;color:#bdc1d5;font:10px system-ui}#ui .hunger-alert kbd{font-size:9px}
 @keyframes hunger-arrive{from{opacity:0;margin-top:5px}to{opacity:1;margin-top:0}}
+/* Cooperative lobby, compact left-side speakers and the party menu. */
+.party-start { margin: 12px 0; }
+.party-start select, .party-start input { width: 100%; }
+.party-start [hidden], .party-hud[hidden], .party-panel[hidden] { display: none !important; }
+.party-hud { position: absolute; left: 28px; top: 165px; width: 275px; pointer-events: auto; z-index: 15; }
+.party-open { padding: 7px 11px; color: #b9b3c6; border: 1px solid #66617b66; background: #14131fd9; font: 12px Georgia, serif; cursor: pointer; }
+.party-speakers { margin-top: 8px; display: grid; gap: 5px; }
+.party-speaker { color: #d6e0d2; padding: 7px 10px; background: #20252bd9; border-left: 2px solid #a1b9a3; font-size: 13px; animation: voice-arrive .12s ease-out; }
+@keyframes voice-arrive { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: none; } }
+.party-panel { position: fixed; z-index: 150; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(520px,92vw); max-height: 90vh; overflow: auto; padding: 26px; background: #171620f7; border: 1px solid #777087; box-shadow: 0 20px 100px #000b; color: #ddd7cc; font: 14px/1.5 Georgia,serif; }
+.party-panel-head { display: flex; align-items: start; justify-content: space-between; }
+.party-panel h2 { margin: 4px 0 12px; font-size: 28px; font-weight: normal; }
+.party-panel button { padding: 8px 12px; margin: 4px 4px 4px 0; color: #e0d7c6; border: 1px solid #655e73; background: #302b3a; cursor: pointer; font: inherit; }
+.party-panel button:hover, .party-open:hover { background: #474052; }
+.party-panel button:disabled { opacity: .45; cursor: default; }
+.party-member { display: grid; grid-template-columns: 1fr auto; padding: 12px 0; border-bottom: 1px solid #544e6155; }
+.party-member span { grid-column: 1; color: #a39aae; font-size: 12px; }
+.party-member button { grid-column: 2; grid-row: 1 / 3; }
+.party-voice-controls { padding: 16px 0; }
+.party-voice-controls label { display: block; padding-top: 12px; }
+.party-voice-controls input { width: auto; }
+#voice-status { font: 12px/1.5 system-ui,sans-serif; color: #b6aabf; }
+.party-actions { border-top: 1px solid #655e7355; padding-top: 12px; }
+@media(max-height:800px) { .character-sheet { padding-top: 20px; padding-bottom: 20px; } .party-start { margin: 6px 0; } }
+.party-revive-progress { position:fixed;z-index:155;bottom:13%;left:50%;transform:translateX(-50%);display:grid;gap:12px;width:360px;max-width:90vw;padding:18px;background:#171620ee;border:1px solid #777087;color:#ddd7cc;text-align:center; }
+.party-revive-progress progress { width:100%;accent-color:#a7b591; }
+.party-revive-progress button { color:#ddd7cc;background:#302b3a;border:1px solid #655e73;padding:8px;cursor:pointer; }
+.party-result { position:fixed;inset:0;z-index:180;background:#10111bf5;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#ddd7cc;text-align:center;padding:40px;gap:24px; }
+.party-result h1 { font:48px Georgia,serif; }.party-result p { max-width:650px;line-height:1.7; }.party-result button { max-width:320px; }
+.party-result[hidden],.party-revive-progress[hidden] { display:none; }
+.party-objective { color:#c4b2db;line-height:1.6;border-left:2px solid #8c789f;padding-left:12px; }

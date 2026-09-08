@@ -1,5 +1,11 @@
 # Native window bridge
 
+## Cooperative transport
+
+Cooperative browsers connect to `/party`; native solo broadcasts never enter that socket. `party-create` / `party-join` establish a server-owned room with at most four characters. `party-joined` returns an individual ID and a secret reconnect token only to its owner. Tokens must not be shared with invitation codes. `party-roster` carries public identities and voice readiness. Existing `input`, `action`, `jump`, `defend`, `release`, `answer` and `cancel` messages are scoped by the WebSocket's authenticated character, never a client-supplied player ID. Private `snapshot` packets contain only that character's inventory and discovered map; `motion.players` contains public party positions, equipment, animation state and floor IDs. Projectiles have server-owned IDs and positions. Voice signaling is accepted only between enabled voice participants in the same room; `from` is assigned by the server. Invalid, repeated, unavailable or out-of-reach actions are rejected with `action-status`.
+
+`lib/party-dungeon.mjs` uses an isolated native process for floor generation only. `lib/party-simulation.mjs` owns cooperative rules and shared world state; it never attempts to swap the native engine's global hero. Cooperative save files include versioned content and all characters/floors. See the README's cooperative compatibility boundary.
+
 The engine executable reads stdin and writes stdout. Both streams are line-delimited; stdout is JSON and stdin is a small text protocol. stderr is diagnostic output. All strings in stdout are JSON escaped.
 
 ## Engine events

@@ -31,7 +31,7 @@ try{
   await writeFile(path.join(runtime,'descent-session.json'),JSON.stringify({name:'wizard',role:'Wizard',race:'human',gender:'male',alignment:'neutral'}));
   server=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:String(port),NETHACK_RUNTIME:runtime},windowsHide:true,stdio:'pipe'});server.stdout.on('data',b=>output+=b);server.stderr.on('data',b=>output+=b);
   for(let i=0;i<50;i++){try{if((await fetch(`http://127.0.0.1:${port}/api/status`)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
-  const status=await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();assert.equal(status.version,'0.7.0');assert.ok(status.features.includes('trap-struggle'));
+  const status=await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();assert.equal(status.version,'0.8.0');assert.ok(status.features.includes('trap-struggle'));
   browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--enable-webgl','--ignore-gpu-blocklist']});
   const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{localStorage.setItem('descent.settings',JSON.stringify({pulseTime:.25}));});
