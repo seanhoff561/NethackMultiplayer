@@ -26,7 +26,7 @@ export const PARTY_COMMANDS = [
   ['i','Inventory','Inspect your equipment'],['w','Wield','Equip a weapon'],['W','Wear','Equip armor'],['T','Take off','Remove armor'],['d','Drop','Share an item with your party'],
   [',','Pick up','Take a nearby item'],['q','Drink','Drink a healing potion'],['e','Eat','Eat food'],['r','Read','Read a scroll'],['a','Apply','Use a tool or open a container'],
   ['Z','Cast','Use your class ability'],['z','Zap','Fire a wand'],['f','Fire','Fire ammunition'],['t','Throw','Throw an item'],['x','Swap','Swap weapons'],
-  ['s','Search','Reveal nearby traps and secret passages'],['#pray','Pray','Recover beside an altar'],['#offer','Offer','Sacrifice a corpse at an altar'],['#loot','Loot','Open a nearby container'],
+  ['#dig','Dig','Use a pick-axe or digging tool on the rock ahead'],['s','Search','Reveal nearby traps and secret passages'],['#pray','Pray','Recover beside an altar'],['#offer','Offer','Sacrifice a corpse at an altar'],['#loot','Loot','Open a nearby container'],
   ['#revive','Revive ally','Spend 10 uninterrupted seconds reviving a companion within two metres'],['#chat','Quest leader','Speak on behalf of the world creator'],['#invoke','Invocation','Use the three invocation tools at the vibrating square'],['>','Descend','Use a nearby down staircase or portal'],['<','Ascend','Use a nearby up staircase'],
   ['S','Save party','Save everyone and every explored floor'],['#showspells','Known spells','Review your class ability'],['.','Wait','Stand still'],
 ].map(([key,name,description])=>({key,name,description,category:'Cooperative expedition'}));

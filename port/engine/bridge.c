@@ -167,6 +167,13 @@ static void party_campaign(void) {
         if(!first)putchar(',');first=0;
         printf("{\"x\":%d,\"y\":%d,\"up\":false,\"kind\":\"portal\",\"to\":\"%d:%d\"}",trap->tx,trap->ty,trap->dst.dnum,trap->dst.dlevel);
     }
+    for(trap=gf.ftrap;trap;trap=trap->ntrap)if(trap->ttyp==HOLE||trap->ttyp==TRAPDOOR){
+        d_level to=trap->dst;
+        if(Is_stronghold(&u.uz))find_hell(&to);
+        if(to.dnum<0||to.dnum>=svn.n_dgns||to.dlevel<1||to.dlevel>svd.dungeons[to.dnum].num_dunlevs)continue;
+        if(!first)putchar(',');first=0;
+        printf("{\"x\":%d,\"y\":%d,\"up\":false,\"kind\":\"drop\",\"to\":\"%d:%d\"}",trap->tx,trap->ty,to.dnum,to.dlevel);
+    }
     fputs("]",stdout);
 }
 static void snapshot(void) {
@@ -219,6 +226,11 @@ static void snapshot(void) {
         }
         if (glyph_is_trap(g)) { fputs(",\"trap\":true", stdout); }
         if(party_generator()&&levl[x][y].typ==ALTAR)printf(",\"altarAlignment\":%d",Amask2align(levl[x][y].altarmask & AM_MASK));
+        if(party_generator()){
+            printf(",\"secretDoor\":%s,\"secretCorridor\":%s,\"diggable\":%s,\"drawbridge\":%s",
+                   levl[x][y].typ==SDOOR?"true":"false",levl[x][y].typ==SCORR?"true":"false",
+                   (levl[x][y].wall_info&W_NONDIGGABLE)?"false":"true",(levl[x][y].typ==DBWALL||levl[x][y].typ==DRAWBRIDGE_UP)?"true":"false");
+        }
         putchar('}');
     }
     fputs("],\"actors\":[", stdout); first = 1;
@@ -272,7 +284,7 @@ static char *read_wire(void) {
                 destination.dnum=dnum;destination.dlevel=dlevel;
                 /* Only the isolated content generator bypasses hero gates.
                    The authoritative party campaign enforces them for players. */
-                u.uhave.amulet=1;u.uevent.invoked=1;svq.quest_status.got_quest=1;
+                u.uhave.amulet=In_endgame(&destination)?1:0;u.uevent.invoked=1;svq.quest_status.got_quest=1;u.ualign.record=20;
                 goto_level(&destination,FALSE,FALSE,FALSE);snapshot();
                 printf("{\"type\":\"campaign-floor-ready\",\"levelId\":\"%d:%d\"}\n",u.uz.dnum,u.uz.dlevel);fflush(stdout);
             }
@@ -389,6 +401,7 @@ static void bridge_callback(const char *name, void *ret, const char *fmt, ...) {
     va_start(ap, fmt);
     if (!strcmp(name, "shim_init_nhwindows")) { iflags.window_inited = TRUE; iflags.force_invmenu = TRUE; metadata(); }
     else if (!strcmp(name, "shim_player_selection")) {
+        if(party_generator())gp.preferred_pet='n';
         if (flags.initrole < 0) flags.initrole = str2role("Valkyrie");
         if (flags.initrace < 0) flags.initrace = randrace(flags.initrole);
         if (flags.initgend < 0) flags.initgend = randgend(flags.initrole, flags.initrace);

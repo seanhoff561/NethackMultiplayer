@@ -11,9 +11,9 @@ export class PartyCampaign {
     const r=this.room,f=r.floors.get(p.depth),s=this.state;
     const leader=[...f.sim.actors.values()].find(a=>a.data.name===s.native?.questLeader&&range(a,p.body)<3.5&&f.sim.world.lineClear(a,p.body,.02));
     if(!leader)throw Error('Stand beside your world creator’s quest leader.');
-    const owner=r.players.get(s.owner.id),level=owner?.level||s.owner.level||1;
-    if(!s.questAccepted){if(level<14)throw Error(`${s.owner.name} must reach level 14 before the quest leader will assign the quest.`);s.questAccepted=true;r.notify(`${s.native.questLeader} entrusts ${s.owner.name}’s quest to the party: defeat ${s.native.questNemesis} and recover ${s.native.questArtifact}.`);}
-    else if(!s.questComplete){if(!this.nearbyItems(p).some(({item})=>item.campaignItem==='questArtifact'))throw Error('Bring the quest artifact back to your leader.');s.questComplete=true;r.notify('The quest leader recognizes your victory. The party keeps the artifact and the Bell of Opening.');}
+    const level=Math.max(s.owner.level||1,...[...r.players.values()].map(p=>p.level));
+    if(!s.questAccepted){if(level<14)throw Error('Reach level 14 as a party before the quest leader will assign the quest.');s.owner.level=level;s.questAccepted=true;r.notify(`${s.native.questLeader} entrusts ${s.owner.name}’s quest to the party: defeat ${s.native.questNemesis} and recover ${s.native.questArtifact}.`);}
+    else if(!s.questComplete){if(!s.nemesisDefeated)throw Error('Defeat the quest nemesis before returning for your reward.');if(!this.nearbyItems(p).some(({item})=>item.campaignItem==='questArtifact'))throw Error('Bring the quest artifact back to your leader.');s.questComplete=true;r.notify('The quest leader recognizes your victory. The party keeps the artifact and the Bell of Opening.');}
     else r.send(p.id,{type:'notice',text:'Your quest is complete. Seek the invocation tools and the Amulet of Yendor.'});
     r.save(r);
   }

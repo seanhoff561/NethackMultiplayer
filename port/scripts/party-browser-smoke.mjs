@@ -15,12 +15,14 @@ try{
   let code;
   for(const [i,role] of ['Knight','Wizard','Healer','Rogue'].entries()){
     const context=await browser.newContext({viewport:{width:1440,height:1000},permissions:['microphone']}),page=await context.newPage();pages.push(page);page.on('pageerror',e=>errors.push(e.message));
+    await page.addInitScript(()=>{const Socket=window.WebSocket;window.WebSocket=class extends Socket{constructor(...args){super(...args);window.__qaSocket=this;}};});
     await page.goto(url);await page.waitForFunction(()=>window.descent?.state.connected);
     await page.locator('#character-name').fill(`Companion ${i+1}`);await page.locator('#character-role').selectOption(role);await page.locator('#expedition-mode').selectOption(i?'join':'create');if(i)await page.locator('#party-code').fill(code);
     await page.locator('#enter-dungeon').click();await page.waitForFunction(()=>window.descent?.state.party&&window.descent.state.motion,{},{timeout:20000});
     code=await page.evaluate(()=>window.descent.state.party.code);
   }
   for(const page of pages)await page.waitForFunction(()=>window.descent.state.party.models===3,{},{timeout:10000});
+  for(const page of pages)assert.equal(await page.evaluate(()=>[...window.descent.renderer.monsters.values()].some(m=>m.data?.tame)),false,'no multiplayer pets');
   const ids=await Promise.all(pages.map(page=>page.evaluate(()=>window.descent.state.party.id)));assert.equal(new Set(ids).size,4);
   const initial=await pages[0].evaluate(()=>window.descent.state.motion.player);
   await pages[0].locator('#game').click({position:{x:700,y:450}});await pages[0].keyboard.down('w');await pages[0].waitForTimeout(250);await pages[0].keyboard.up('w');await pages[0].waitForTimeout(150);
@@ -31,6 +33,16 @@ try{
   for(const page of pages)await page.waitForFunction(()=>window.descent.state.party.voicePeers.length===3&&window.descent.state.party.voicePeers.every(s=>s==='connected'),{},{timeout:20000});
   await pages[0].locator('#voice-ptt').uncheck();await pages[1].locator('.party-speaker').filter({hasText:'Companion 1'}).waitFor({timeout:15000});await pages[0].screenshot({path:'test-results/party-voice-menu.png'});
   await pages[0].locator('#voice-mute').click();await pages[1].waitForFunction(()=>![...document.querySelectorAll('.party-speaker')].some(n=>n.textContent.includes('Companion 1')),{},{timeout:5000});
+  // Test the actual processed microphone track, not just slider labels.
+  await pages[0].locator('#voice-mute').click();
+  await pages[0].locator('#voice-volume').fill('0');await pages[1].waitForFunction(()=>![...document.querySelectorAll('.party-speaker')].some(n=>n.textContent.includes('Companion 1')),{},{timeout:5000});
+  await pages[0].locator('#voice-volume').fill('150');await pages[0].waitForFunction(()=>window.descent.voice.inputGain.gain.value>1.49);await pages[1].locator('.party-speaker').filter({hasText:'Companion 1'}).waitFor({timeout:5000});
+  await pages[0].locator('#voice-test').click();await pages[0].waitForFunction(()=>document.querySelector('#voice-meter').value>0.01&&window.descent.voice.testing);assert.equal(await pages[0].evaluate(()=>window.descent.voice.stream.getAudioTracks()[0].enabled),false,'mic test is not transmitted');
+  await pages[1].waitForFunction(()=>![...document.querySelectorAll('.party-speaker')].some(n=>n.textContent.includes('Companion 1')),{},{timeout:5000});
+  const device=await pages[0].locator('#voice-device option').evaluateAll(options=>options.find(o=>o.value&&o.value!=='default')?.value||'');assert.ok(device,'microphone devices are listed');
+  const previousTrack=await pages[0].evaluate(()=>window.descent.voice.raw.getAudioTracks()[0].id);await pages[0].locator('#voice-device').selectOption(device);await pages[0].waitForFunction(id=>window.descent.voice.raw.getAudioTracks()[0].id!==id,previousTrack);assert.equal(await pages[0].evaluate(()=>window.descent.voice.peers.size),3,'device switch preserves peer connections');
+  await pages[0].screenshot({path:'test-results/party-microphone-options.png'});await pages[0].locator('#voice-test').click();await pages[1].locator('.party-speaker').filter({hasText:'Companion 1'}).waitFor({timeout:5000});
+  await pages[0].locator('#voice-volume').fill('100');await pages[0].locator('#voice-mute').click();
   // Reload uses this tab's private reconnect credential without creating a fifth hero.
   await pages[3].reload();await pages[3].locator('#rejoin-party').click();await pages[3].waitForFunction(()=>window.descent.state.party?.models===3,{},{timeout:15000});assert.equal(await pages[3].evaluate(()=>window.descent.state.party.id),ids[3]);
   // Presentation fixture: inspect every class rig, including models not chosen above.
@@ -42,5 +54,12 @@ try{
     const render=new THREE.WebGLRenderer({antialias:true});render.setSize(1600,900);render.domElement.style.cssText='position:fixed;inset:0;z-index:9999';document.body.append(render.domElement);
     const records=Object.keys(CLASSES).map((role,i)=>{const rig=playerModel({name:role,role,race:'human'});rig.group.position.set((i%7-3)*2.45,0,i<7?2.8:-3.2);rig.group.rotation.y=.15;scene.add(rig.group);rig.arms[1].rotation.x=i%2?.85:0;rig.legs[0].rotation.x=.25;rig.legs[1].rotation.x=-.25;return {role,parts:rig.body.children.length};});render.render(scene,camera);return records;
   });assert.equal(rigs.length,13);await gallery.screenshot({path:'test-results/party-class-models.png'});
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({players:4,modelsPerClient:3,classModels:rigs.length,voiceLinks:6,receivedVoice:true,mute:true,reconnect:true,code,runtime}));
+  // Presentation-only outcome fixtures; campaign and permanent defeat rules are
+  // exercised on the authoritative server by the simulation tests.
+  for(const [i,status] of ['defeat','victory'].entries()){
+    await pages[i].evaluate(status=>window.__qaSocket.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({type:'party-result',status,text:status==='defeat'?'The entire party has fallen. Create a new expedition.':'The party offers the Amulet of Yendor and ascends together.'})})),status);
+    await pages[i].locator('.party-result').waitFor();assert.equal(await pages[i].evaluate(()=>window.descent.state.playing),false);await pages[i].screenshot({path:`test-results/party-${status}.png`});
+  }
+  await pages[0].locator('.party-result button').click();await pages[0].waitForFunction(()=>!sessionStorage.getItem('descent.party')&&document.querySelector('#enter-dungeon'));assert.equal(await pages[0].locator('#rejoin-party').count(),0);
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({players:4,modelsPerClient:3,classModels:rigs.length,voiceLinks:6,receivedVoice:true,mute:true,microphoneSelection:true,microphoneVolume:true,privateMicrophoneTest:true,reconnect:true,outcomeScreens:true,code,runtime}));
 }catch(error){console.error(output,errors);for(const page of pages)console.error(await page.evaluate(async()=>{const v=window.descent.voice;return {party:window.descent?.state.party,status:document.querySelector('#voice-status')?.textContent,context:v.context?.state,local:v.energy(v.analyser),track:v.stream?.getTracks().map(t=>({enabled:t.enabled,state:t.readyState})),remote:await Promise.all([...v.peers.values()].map(async p=>({level:v.energy(p.analyser),gain:p.gain?.gain.value,stats:[...(await p.pc.getStats()).values()].filter(s=>s.type==='inbound-rtp').map(s=>({bytes:s.bytesReceived,audioLevel:s.audioLevel}))})))}}));throw error;}finally{await browser?.close();server.kill();}

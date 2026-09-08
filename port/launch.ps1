@@ -8,6 +8,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'node_modules/three'))) {
 if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'engine/bin/nethack-engine-polished-v06.exe'))) {
     & (Join-Path $gameRoot 'engine/build.ps1')
 }
+if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'engine/bin/nethack-engine-coop-v08.exe'))) {
+    $previousOutput = $env:NETHACK_BUILD_OUTPUT
+    try { $env:NETHACK_BUILD_OUTPUT = '..\port\engine\bin\nethack-engine-coop-v08.exe'; & (Join-Path $gameRoot 'engine/build.ps1') -BridgeOnly } finally { $env:NETHACK_BUILD_OUTPUT = $previousOutput }
+}
 if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'dist-polished-v08/index.html'))) {
     Push-Location $gameRoot
     try { & npm.cmd run build; if ($LASTEXITCODE -ne 0) { throw 'Renderer build failed.' } } finally { Pop-Location }

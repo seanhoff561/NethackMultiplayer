@@ -150,3 +150,11 @@ body.floor-transition::after{opacity:1}
 .party-result h1 { font:48px Georgia,serif; }.party-result p { max-width:650px;line-height:1.7; }.party-result button { max-width:320px; }
 .party-result[hidden],.party-revive-progress[hidden] { display:none; }
 .party-objective { color:#c4b2db;line-height:1.6;border-left:2px solid #8c789f;padding-left:12px; }
+.party-microphone { display: grid; gap: 8px; flex-basis: 100%; padding: 14px 0; }
+.party-microphone select { width: 100%; min-width: 0; padding: 9px; color: #e8dbc8; background: #141414; border: 1px solid #554836; }
+.party-microphone input[type="range"] { width: 100%; accent-color: #c6a365; }
+.party-mic-test { display: flex; align-items: center; gap: 14px; }
+.party-mic-test meter { width: 100%; height: 20px; }
+.party-mic-test button { flex-shrink: 0; white-space: nowrap; }
+.party-mic-test meter { min-width: 0; }
+.party-panel { max-height: 88vh; overflow-y: auto; }

@@ -325,7 +325,7 @@ export class DungeonRenderer {
       else if (type === 'throne') this._throne(x, z);
       else if (type === 'bars') this._bars(x, z);
       else if (type === 'trap') this._trap(x, z, tile.description || 'trap');
-      if(tile.trap&&type!=='trap')this._trap(x,z,tile.description||'trap');
+      if((tile.trap||tile.campaignMarker)&&type!=='trap')this._trap(x,z,tile.description||'trap');
       const adjacentWalls = directions.filter(([dx, dy]) => ['wall', 'stone'].includes(typeAt(tile.x + dx, tile.y + dy)));
       if (adjacentWalls.length && !['door', 'door_open', 'water', 'lava'].includes(type)) {
         if (hash(tile.x, tile.y, 31) > 0.68) {

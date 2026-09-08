@@ -16,6 +16,7 @@ export class PartyServer {
     if(this.rooms.has(code))return this.rooms.get(code);
     const saveFile=path.join(this.runtime,'parties',code+'.json');
     if(!create&&!existsSync(saveFile))throw Error('No party has that code on this server.');
+    if(this.rooms.size>=8)for(const [id,room] of this.rooms){if(!room.loading.size&&![...room.players.values()].some(p=>p.connected)&&this.save(room)){room.generator.stop?.();this.rooms.delete(id);if(this.rooms.size<8)break;}}
     if(this.rooms.size>=8)throw Error('This server has reached its party limit.');
     const room=new PartySimulation({code,generator:new PartyDungeon({executable:process.env.NETHACK_COOP_ENGINE||path.join(this.root,'engine/bin/nethack-engine-coop-v08.exe'),data:path.join(this.root,'engine/data'),cwd:path.join(this.runtime,'party-generators',code)}),send:(id,event)=>this.send(this.connections.get(id),event),save:r=>this.save(r)});
     if(existsSync(saveFile))room.restore(JSON.parse(readFileSync(saveFile,'utf8')));this.rooms.set(code,room);return room;

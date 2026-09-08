@@ -41,9 +41,24 @@ test('scaling preserves damage, voice is silent across floors and beyond range',
   assert.ok(voiceGain(here,near)>voiceGain(here,{...near,x:12}));assert.equal(voiceGain(here,{...near,x:19}),0);assert.equal(voiceGain(here,{...near,levelId:'party:2'}),0);
   assert.ok(voiceGain(here,near,{lineClear:()=>false})<voiceGain(here,near));assert.equal(Object.keys(CLASSES).length,13);
 });
-test('downed allies revive, all floors continue ticking, party wipe recovers',async()=>{
-  const {room:r}=room(),a=await r.join({role:'Knight'}),b=await r.join({role:'Healer'});b.body={...a.body,x:a.body.x+.8};r.hurt(b,100);assert.equal(b.hp,0);r.command(a,'#revive');assert.ok(b.hp>0);
-  r.time+=5;r.hurt(a,100);r.hurt(b,100);r.tick(.1);r.tick(5.1);assert.ok(a.hp>0&&b.hp>0);
+test('revival takes ten uninterrupted seconds; movement, damage and disconnect cancel it',async()=>{
+  const {room:r}=room(),a=await r.join({role:'Knight'}),b=await r.join({role:'Healer'});r.floors.get(1).sim.actors.clear();a.body={...a.body,x:16.5,z:16.5,y:0};b.body={...a.body,id:b.id,x:a.body.x+1};r.hurt(b,100);assert.equal(b.hp,0);
+  r.command(a,'#revive');r.tick(5);assert.equal(b.hp,0);assert.equal(r.reviveState(a).remaining,5);r.input(a,{forward:1});assert.equal(a.revive,null);
+  r.command(a,'#revive');r.hurt(a,1);assert.equal(a.revive,null);
+  r.command(a,'#revive');r.disconnect(b.id);r.tick(.1);assert.equal(a.revive,null);await r.join({},b.token);
+  r.command(a,'#revive');r.tick(9.99);assert.equal(b.hp,0);r.tick(.02);assert.equal(b.hp,Math.ceil(b.maxHp*.35));assert.equal(a.revive,null);
+});
+
+test('a full party wipe is permanent across saves and reconnects and rejects fresh characters',async()=>{
+  const {room:r,events}=room(),a=await r.join({}),b=await r.join({});b.depth=(await r.floor(2)).depth;r.hurt(a,1000);r.tick(.1);assert.equal(r.outcome,undefined);r.hurt(b,1000);r.tick(.1);
+  assert.equal(r.outcome.status,'defeat');assert.equal(events.filter(e=>e.type==='party-result').length,2);const time=r.time;r.tick(60);assert.equal(r.time,time);assert.equal(a.hp,0);assert.equal(b.hp,0);
+  const restored=room().room;restored.restore(r.serialize());assert.equal(restored.outcome.status,'defeat');const rejoined=await restored.join({},a.token);assert.equal(rejoined.hp,0);await assert.rejects(restored.join({}),/ended/);assert.throws(()=>restored.command(rejoined,'#revive'),/ended/);
+});
+
+test('multiplayer omits pets from new floors and legacy saves',async()=>{
+  const data=fixture();data.actors.push({...data.actors[0],id:10,tame:true,peaceful:true,name:'little dog'});
+  const r=new PartySimulation({code:'ABCDEF12',generator:{floor:async()=>data}});await r.join({});assert.equal(r.floors.get(1).sim.actors.size,1);
+  const saved=r.serialize();saved.floors[0].actors.push({...saved.floors[0].actors[0],id:11,data:{tame:true}});const restored=room().room;restored.restore(saved);assert.equal(restored.floors.get(1).sim.actors.size,1);
 });
 test('projectiles persist in party saves and hero bodies keep distinct collision IDs',async()=>{
   const {room:r}=room(),a=await r.join({}),b=await r.join({});assert.notEqual(a.body.id,b.body.id);

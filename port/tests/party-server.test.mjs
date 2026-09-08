@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PartyServer} from '../lib/party-server.mjs';
 import {PartySimulation} from '../lib/party-simulation.mjs';
+import {mkdtemp} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 
 const socket=()=>({readyState:1,bufferedAmount:0,messages:[],send(data){this.messages.push(JSON.parse(data));},close(code){this.readyState=3;this.closeCode=code;}});
 const fixture=()=>({width:10,height:10,player:{x:3,y:3,depth:1,hp:20},levelId:'0:1',tiles:Array.from({length:100},(_,i)=>({x:i%10,y:Math.floor(i/10),type:'floor'})),actors:[],floorObjects:[]});
@@ -28,4 +31,10 @@ test('only the leader can release a disconnected seat and equipment remains in t
   const {server:s,r}=setup(),a=socket(),b=socket(),c=socket();for(const ws of [a,b,c])await s.handle(ws,{type:'party-join',code:r.code});const id=c.party.id;const items=r.players.get(id).inventory.length;s.disconnect(c);
   await s.handle(b,{type:'party-release-seat',playerId:id});assert.ok(r.players.has(id));
   await s.handle(a,{type:'party-release-seat',playerId:id});assert.equal(r.players.has(id),false);assert.equal(r.floors.get(1).objects.length,items);
+});
+
+test('completed or disconnected rooms can be unloaded so repeated wipes do not exhaust party slots',async()=>{
+  const runtime=await mkdtemp(path.join(tmpdir(),'descent-party-capacity-')),s=new PartyServer({root:runtime,runtime});let stopped=0,saved=0;s.save=()=>{saved++;return true;};
+  for(let n=0;n<8;n++)s.rooms.set(String(n),{loading:new Map(),players:new Map(),generator:{stop(){stopped++;}}});
+  const fresh=s.room('ABCDEF12',true);assert.equal(fresh.code,'ABCDEF12');assert.equal(s.rooms.size,8);assert.equal(stopped,1);assert.equal(saved,1);
 });
